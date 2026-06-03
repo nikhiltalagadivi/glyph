@@ -3,19 +3,25 @@ import Foundation
 struct MathScopeScanner {
     static let mathKeywords: Set<String> = [
         "integral", "integrals", "derivative", "derivatives", "sum", "sums", "product", "products",
-        "limit", "limits", "lim", "infinity", "inf", "pi", "alpha", "beta", "gamma", "delta", "epsilon",
-        "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "rho", "sigma",
-        "tau", "upsilon", "phi", "chi", "psi", "omega",
-        "sin", "cos", "tan", "csc", "sec", "cot", "arcsin", "arccos", "arctan",
-        "sinh", "cosh", "tanh", "log", "ln", "exp", "matrix", "vector", "tensor",
-        "fraction", "frac", "over", "divided", "plus", "minus", "times", "multiplied", "equals", "equal",
-        "squared", "cubed", "power", "root", "sqrt", "modulo", "mod", "dot", "cross",
-        "gradient", "grad", "divergence", "div", "curl", "laplacian",
-        "partial", "dx", "dy", "dz", "dt", "du", "dv", "dtheta", "dphi",
-        "union", "intersection", "subset", "superset", "element", "exists", "forall",
-        "implies", "iff", "evaluate", "evaluated", "from", "to", "choose", "binom",
-        "expected", "variance", "cov", "probability", "prob", "mean", "median", "mode", "stddev",
-        "distribution", "normal", "binomial", "poisson", "uniform", "exponential"
+        "limit", "limits", "lim", "liminf", "limsup", "infinity", "inf", "infty", "pi", 
+        "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", 
+        "lambda", "mu", "nu", "xi", "omicron", "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega",
+        "sin", "cos", "tan", "csc", "sec", "cot", "arcsin", "arccos", "arctan", "sinh", "cosh", "tanh",
+        "arcsinh", "arccosh", "arctanh", "sech", "csch", "coth", "log", "ln", "lg", "exp", "matrix", "matrices",
+        "vector", "tensor", "determinant", "det", "transpose", "inverse", "inv", "trace", "tr",
+        "eigenvalue", "eigenvalues", "eigenvector", "eigenvectors", "dimension", "dim", "rank",
+        "kernel", "ker", "image", "im", "fraction", "frac", "over", "divided", "plus", "minus", "times",
+        "multiplied", "equals", "equal", "squared", "cubed", "power", "root", "sqrt", "cbrt", "modulo", "mod",
+        "dot", "cross", "gradient", "grad", "divergence", "div", "curl", "laplacian", "partial", "del", "nabla",
+        "dx", "dy", "dz", "dt", "du", "dv", "dw", "dr", "dtheta", "dphi", "dpsi", "deta", "dxi",
+        "union", "intersection", "subset", "subseteq", "supset", "supseteq", "element", "notin", "exists", "forall",
+        "implies", "iff", "evaluate", "evaluated", "from", "to", "choose", "binom", "expected", "variance", "cov",
+        "probability", "prob", "mean", "median", "mode", "stddev", "distribution", "normal", "binomial", "poisson",
+        "uniform", "exponential", "approx", "approximately", "factorial", "prime", "emptyset", "varnothing", "setminus",
+        "parallel", "perp", "orthogonal", "orthonormal", "convolution", "convolute", "fourier", "laplace", "transform",
+        "ceiling", "ceil", "floor", "abs", "absolute", "norm", "real", "imaginary", "imag", "re", "arg", "argument",
+        "conjugate", "conj", "sign", "sgn", "min", "max", "sup", "supremum", "infimum", "deg", "degree", "degrees",
+        "rad", "radian", "radians"
     ]
     
     static let stopWords: Set<String> = [
