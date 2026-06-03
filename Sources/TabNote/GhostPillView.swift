@@ -1,4 +1,5 @@
 import SwiftUI
+import LaTeXSwiftUI
 
 class GhostPillState: ObservableObject {
     @Published var suggestionText: String = ""
@@ -16,7 +17,7 @@ struct GhostPillView: View {
             } else if !state.suggestionText.isEmpty {
                 Text("⟲")
                     .foregroundColor(.secondary)
-                Text(state.suggestionText)
+                LaTeX(state.suggestionText)
                     .foregroundColor(.primary)
                 
                 HStack(spacing: 2) {

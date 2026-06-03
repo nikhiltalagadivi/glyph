@@ -33,6 +33,7 @@ func createMathImage(for markdown: String) -> NSImage? {
     renderer.scale = NSScreen.main?.backingScaleFactor ?? 2.0
     let img = renderer.nsImage
     img?.isTemplate = true
+    print("createMathImage for: '\(markdown)' -> img: \(String(describing: img))")
     return img
 }
 
