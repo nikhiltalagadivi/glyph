@@ -23,34 +23,15 @@ func createMathImage(for markdown: String) -> NSImage? {
         processed = markdown
     }
 
-    // Render at 20pt to match the visual weight of the surrounding 18pt system font
-    let view = LaTeX(processed)
-        .unencoded()
-        .font(.system(size: 20))
-        .foregroundColor(.black)
-        .renderingStyle(.wait)
-        .fixedSize()
-
-    let hostingController = NSHostingController(rootView: view)
-    let viewSize = hostingController.sizeThatFits(in: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+    let images = LaTeX.renderToImages(processed, displayScale: NSScreen.main?.backingScaleFactor ?? 2.0)
     
-    guard viewSize.width > 0 && viewSize.height > 0 else {
+    guard let img = images.first else {
+        print("createMathImage: renderToImages returned empty array for '\(processed)'")
         return nil
     }
     
-    hostingController.view.setFrameSize(viewSize)
-    hostingController.view.layout()
-    
-    guard let rep = hostingController.view.bitmapImageRepForCachingDisplay(in: hostingController.view.bounds) else {
-        return nil
-    }
-    hostingController.view.cacheDisplay(in: hostingController.view.bounds, to: rep)
-    
-    let img = NSImage(size: viewSize)
-    img.addRepresentation(rep)
+    // Scale up the image slightly to match the 20pt size
     img.isTemplate = true
-    
-    print("createMathImage via NSHostingController for: '\(markdown)' -> img: \(img)")
     return img
 }
 

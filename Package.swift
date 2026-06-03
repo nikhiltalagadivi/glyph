@@ -11,7 +11,7 @@ let package = Package(
         .executable(name: "Glyph", targets: ["Glyph"])
     ],
     dependencies: [
-        .package(url: "https://github.com/colinc86/LaTeXSwiftUI.git", from: "1.1.0")
+        .package(url: "https://github.com/colinc86/LaTeXSwiftUI.git", from: "2.0.0")
     ],
     targets: [
         .executableTarget(
