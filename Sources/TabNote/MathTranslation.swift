@@ -212,7 +212,8 @@ enum LocalMathTranslator {
     private static func matchGeneral(_ line: String) -> (String, String)? {
         guard mightBeMathLine(line) else { return nil }
         let latex = clean(line)
-        guard latex != line else { return nil }
+        let hasMathSymbols = line.rangeOfCharacter(from: CharacterSet(charactersIn: "+-*/^=<>\\")) != nil
+        guard latex != line || hasMathSymbols else { return nil }
 
         // Walk words from left until we hit clear math content
         let words = line.components(separatedBy: .whitespaces)
@@ -252,8 +253,7 @@ enum LocalMathTranslator {
             let clean = word.lowercased()
                 .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.alphanumerics.inverted))
             if mathWords.contains(clean)
-                || clean.rangeOfCharacter(from: .decimalDigits) != nil
-                || clean.rangeOfCharacter(from: mathChars) != nil {
+                || word.rangeOfCharacter(from: mathChars) != nil {
                 start = idx
                 break
             }

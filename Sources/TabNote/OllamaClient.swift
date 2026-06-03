@@ -104,10 +104,6 @@ actor OllamaSuggestionEngine {
         if suffix.rangeOfCharacter(from: mathChars) != nil {
             return true
         }
-        if suffix.rangeOfCharacter(from: .decimalDigits) != nil {
-            return true
-        }
-        
         let mathKeywords: Set<String> = [
             "squared", "cubed", "power", "plus", "minus", "times", "divide", "over",
             "sum", "product", "integral", "limit", "derivative", "gradient", "divergence",
@@ -263,7 +259,9 @@ Output:
         
         let prompt = """
 You are a math-to-LaTeX converter.
-If the text ends with math, output exactly: <original>exact math text</original><latex>\\( latex equation \\)</latex>
+If the text contains math, extract ONLY the mathematical part, and output exactly: <original>exact math text</original><latex>\\( latex equation \\)</latex>
+DO NOT include introductory or surrounding plain text like "Ohm's law:" or "Therefore" in the <original> tag.
+If the text does NOT contain any math, output NONE.
 
 Input: The area of a circle is pi r squared
 Output: <original>pi r squared</original><latex>\\( \\pi r^2 \\)</latex>
@@ -271,11 +269,11 @@ Output: <original>pi r squared</original><latex>\\( \\pi r^2 \\)</latex>
 Input: and the work w is the integral from 0 to 10 of x squared dx
 Output: <original>the integral from 0 to 10 of x squared dx</original><latex>\\( \\int_{0}^{10} x^2 \\, dx \\)</latex>
 
-Input: F=ma
-Output: <original>F=ma</original><latex>\\( F = ma \\)</latex>
+Input: Ohm's law: V = IR
+Output: <original>V = IR</original><latex>\\( V = I R \\)</latex>
 
-Input: Ax = lambda x
-Output: <original>Ax = lambda x</original><latex>\\( A\\mathbf{x} = \\lambda \\mathbf{x} \\)</latex>
+Input: ELEC1111 Notes
+Output: NONE
 
 Input: \(prefix)
 Output:
