@@ -90,7 +90,7 @@ actor OllamaSuggestionEngine {
         // Match the slash command range
         let pattern = "(?:\\s|^)(/[^\\n]*)$"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
-              let match = regex.firstMatch(in: prefix, range: NSRange(location: 0, length: prefix.count)) else {
+              let match = regex.firstMatch(in: prefix, range: NSRange(location: 0, length: prefix.utf16.count)) else {
             return nil
         }
         

@@ -167,11 +167,15 @@ final class EditorViewModel {
             lineStartIndex = 0
         }
         
-        let isSlashCommand = lastLine.starts(with: "/")
-        
-        if isSlashCommand {
-            tv.setSlashCommandHighlight(NSRange(location: lineStartIndex, length: lastLine.utf16.count))
+        let pattern = "(?:\\s|^)(/[^\\n]*)$"
+        let isSlashCommand: Bool
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+           let match = regex.firstMatch(in: lastLine, range: NSRange(location: 0, length: lastLine.utf16.count)) {
+            isSlashCommand = true
+            let matchRange = match.range(at: 1) // the (/[^\n]*) part
+            tv.setSlashCommandHighlight(NSRange(location: lineStartIndex + matchRange.location, length: matchRange.length))
         } else {
+            isSlashCommand = false
             tv.setSlashCommandHighlight(nil)
         }
 
