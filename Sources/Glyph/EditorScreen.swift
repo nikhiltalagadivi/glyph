@@ -100,7 +100,7 @@ struct EditorScreen: View {
                     .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
                     .shadow(color: Color.black.opacity(0.15), radius: 8, y: 3)
                 }
-                .padding(.top, 12)
+                .padding(.top, 16)
 
                 Spacer()
 
@@ -115,6 +115,7 @@ struct EditorScreen: View {
                 }
             }
             .padding(.horizontal, 16)
+            .ignoresSafeArea(.container, edges: .top)
             .animation(.smooth(duration: 0.25), value: viewModel.statusMessage.isEmpty || viewModel.statusMessage == "thinking…" || viewModel.statusMessage == "⇥ Tab")
         }
         .task {
