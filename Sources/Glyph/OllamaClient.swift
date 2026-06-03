@@ -173,7 +173,7 @@ Output:
         }
     }
 
-    func suggestOllama(for mathPhrase: String, replaceRange: NSRange) async -> SuggestionResult? {
+    func suggestOllama(for mathPhrase: String, context: String, replaceRange: NSRange) async -> SuggestionResult? {
         if let lastFailure = lastFailureTime,
            ContinuousClock.now - lastFailure < retryCooldown {
             return nil
@@ -191,14 +191,39 @@ Output:
             return nil
         }
         
+        let trimmedContext = String(context.suffix(300))
         let prompt = """
-Translate math to LaTeX. ONLY raw LaTeX.
-Input: pi r squared
-Output: \\pi r^2
-Input: integral from 0 to infinity of x dx
-Output: \\int_{0}^{\\infty} x \\, dx
-Input: \(mathPhrase)
-Output:
+You are a mathematical assistant that translates and completes math equations into LaTeX based on the surrounding context.
+Context is the text typed so far. Phrase is the specific part to translate/complete.
+Output ONLY the raw LaTeX expression.
+
+Context: The area of a circle is pi r squared
+Phrase: pi r squared
+LaTeX: \\pi r^2
+
+Context: Let f(x) = x^3. The derivative is f'(x) = 
+Phrase: f'(x) = 
+LaTeX: f'(x) = 3x^2
+
+Context: We have y = x^2
+Phrase: y = x^2
+LaTeX: y = x^2
+
+Context: The equation of a line is y = 
+Phrase: y = 
+LaTeX: y = mx + c
+
+Context: The integral of 2x dx is 
+Phrase: 2x dx is 
+LaTeX: \\int 2x \\, dx = x^2 + C
+
+Context: For a sphere, the volume is 
+Phrase: the volume is 
+LaTeX: V = \\frac{4}{3} \\pi r^3
+
+Context: \(trimmedContext)
+Phrase: \(mathPhrase)
+LaTeX:
 """
 
         let body = OllamaRequest(
@@ -211,7 +236,7 @@ Output:
                 temperature: 0.0,
                 topP: 0.9,
                 numPredict: 60,
-                numCtx: 512,
+                numCtx: 1024,
                 stop: ["\n"]
             )
         )

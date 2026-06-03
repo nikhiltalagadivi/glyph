@@ -228,7 +228,7 @@ final class EditorViewModel {
             // 3. Normal typing -> query local AI (Ollama)
             self.statusMessage = "thinking…"
             let mathPhrase = (prefix as NSString).substring(with: range)
-            let result = await self.engine.suggestOllama(for: mathPhrase, replaceRange: range)
+            let result = await self.engine.suggestOllama(for: mathPhrase, context: prefix, replaceRange: range)
             let msg = await self.engine.statusMessage()
 
             guard !Task.isCancelled, currentID == self.requestID else { return }
