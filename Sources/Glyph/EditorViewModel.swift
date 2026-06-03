@@ -155,7 +155,26 @@ final class EditorViewModel {
         }
 
         let prefix = (text as NSString).substring(to: cursor)
-        let isSlashCommand = prefix.range(of: "(?:\\s|^)/[^\\n]*$", options: .regularExpression) != nil
+        
+        // Find the last line to check for slash command
+        let lastLine: String
+        let lineStartIndex: Int
+        if let lastNewlineRange = prefix.range(of: "\n", options: .backwards) {
+            lastLine = String(prefix[lastNewlineRange.upperBound...])
+            lineStartIndex = prefix.distance(from: prefix.startIndex, to: lastNewlineRange.upperBound)
+        } else {
+            lastLine = prefix
+            lineStartIndex = 0
+        }
+        
+        let isSlashCommand = lastLine.starts(with: "/")
+        
+        if isSlashCommand {
+            tv.setSlashCommandHighlight(NSRange(location: lineStartIndex, length: lastLine.utf16.count))
+        } else {
+            tv.setSlashCommandHighlight(nil)
+        }
+
         let isInstant = isSlashCommand
         let debounceMs = isInstant ? 100 : 400
 
@@ -190,8 +209,17 @@ final class EditorViewModel {
                 }
                 return
             }
-            
-            // 2. Normal typing -> query local AI (Ollama)
+            // 2. Normal typing -> heuristic check first
+            guard self.mightContainMath(lastLine) else {
+                guard !Task.isCancelled, currentID == self.requestID else { return }
+                if self.statusMessage == "thinking…" || self.statusMessage == "⇥ Tab" {
+                    self.statusMessage = ""
+                }
+                self.textView?.clearSuggestion()
+                return
+            }
+
+            // 3. Normal typing -> query local AI (Ollama)
             self.statusMessage = "thinking…"
             let result = await self.engine.suggestOllama(for: snapshot)
             let msg = await self.engine.statusMessage()
@@ -233,6 +261,32 @@ final class EditorViewModel {
     func didDismissSuggestion() {
         currentSuggestion = nil
         statusMessage = ""
+    }
+    
+    private func mightContainMath(_ text: String) -> Bool {
+        let maxLen = 150
+        let suffix = String(text.suffix(maxLen)).lowercased()
+        
+        let mathChars = CharacterSet(charactersIn: "+-*/^=<>()[]{}_\\")
+        if suffix.rangeOfCharacter(from: mathChars) != nil {
+            return true
+        }
+        
+        let mathKeywords: Set<String> = [
+            "squared", "cubed", "power", "plus", "minus", "times", "divide", "over",
+            "sum", "product", "integral", "limit", "derivative", "gradient", "divergence",
+            "curl", "matrix", "vector", "sqrt", "root", "sin", "cos", "tan", "log", "ln",
+            "pi", "theta", "alpha", "beta", "gamma", "delta", "epsilon", "lambda",
+            "mu", "sigma", "omega", "phi", "psi", "tau", "rho", "infinity", "equals", "dot", "cross"
+        ]
+        
+        let words = suffix.components(separatedBy: CharacterSet.alphanumerics.inverted)
+        for word in words {
+            if mathKeywords.contains(word) {
+                return true
+            }
+        }
+        return false
     }
 
     // MARK: Export

@@ -111,6 +111,14 @@ final class GlyphTextView: NSTextView {
     // MARK: - Ghost Text Public API
 
     private var temporaryHighlightRange: NSRange?
+    private var slashCommandHighlightRange: NSRange?
+
+    func setSlashCommandHighlight(_ range: NSRange?) {
+        if slashCommandHighlightRange != range {
+            slashCommandHighlightRange = range
+            needsDisplay = true
+        }
+    }
 
     func showSuggestion(_ suggestion: SuggestionResult) {
         guard window?.firstResponder === self,
@@ -399,35 +407,65 @@ final class GlyphTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
 
-        guard let hlRange = temporaryHighlightRange, hlRange.length > 0,
-              let lm = layoutManager, let tc = textContainer else { return }
-
+        guard let lm = layoutManager, let tc = textContainer else { return }
         let origin = textContainerOrigin
-        let glyphRange = lm.glyphRange(forCharacterRange: hlRange, actualCharacterRange: nil)
         let isDark = effectiveAppearance.name == .darkAqua || effectiveAppearance.name == .vibrantDark
 
-        lm.enumerateLineFragments(forGlyphRange: glyphRange) { [weak self] _, _, lineTC, lineGlyphRange, _ in
-            guard self != nil else { return }
-            let intersection = NSIntersectionRange(glyphRange, lineGlyphRange)
-            guard intersection.length > 0 else { return }
+        // Draw slash command highlight
+        if let scRange = slashCommandHighlightRange, scRange.length > 0 {
+            let glyphRange = lm.glyphRange(forCharacterRange: scRange, actualCharacterRange: nil)
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, lineTC, lineGlyphRange, _ in
+                let intersection = NSIntersectionRange(glyphRange, lineGlyphRange)
+                guard intersection.length > 0 else { return }
 
-            let rect = lm.boundingRect(forGlyphRange: intersection, in: lineTC)
-            let drawRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-            let paddedRect = drawRect.insetBy(
-                dx: -DesignConstants.highlightPaddingH,
-                dy: -DesignConstants.highlightPaddingV
-            )
-            let path = NSBezierPath(roundedRect: paddedRect,
-                                    xRadius: DesignConstants.highlightCornerRadius,
-                                    yRadius: DesignConstants.highlightCornerRadius)
+                let rect = lm.boundingRect(forGlyphRange: intersection, in: lineTC)
+                let drawRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                let paddedRect = drawRect.insetBy(dx: -4, dy: -2)
+                let path = NSBezierPath(roundedRect: paddedRect, xRadius: 4, yRadius: 4)
 
-            NSGraphicsContext.saveGraphicsState()
-            NSColor.labelColor.withAlphaComponent(isDark ? 0.2 : 0.08).setFill()
-            path.fill()
-            NSColor.labelColor.withAlphaComponent(isDark ? 0.3 : 0.15).setStroke()
-            path.lineWidth = DesignConstants.highlightBorderWidth
-            path.stroke()
-            NSGraphicsContext.restoreGraphicsState()
+                NSGraphicsContext.saveGraphicsState()
+                
+                // Outer glow effect
+                let glowColor = isDark ? NSColor.systemIndigo.withAlphaComponent(0.4) : NSColor.systemBlue.withAlphaComponent(0.2)
+                let shadow = NSShadow()
+                shadow.shadowColor = glowColor
+                shadow.shadowBlurRadius = 8
+                shadow.set()
+                
+                // Fill and stroke
+                let fillColor = isDark ? NSColor.systemIndigo.withAlphaComponent(0.15) : NSColor.systemBlue.withAlphaComponent(0.1)
+                fillColor.setFill()
+                path.fill()
+                
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
+
+        // Draw ghost suggestion replacement highlight
+        if let hlRange = temporaryHighlightRange, hlRange.length > 0 {
+            let glyphRange = lm.glyphRange(forCharacterRange: hlRange, actualCharacterRange: nil)
+            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, lineTC, lineGlyphRange, _ in
+                let intersection = NSIntersectionRange(glyphRange, lineGlyphRange)
+                guard intersection.length > 0 else { return }
+
+                let rect = lm.boundingRect(forGlyphRange: intersection, in: lineTC)
+                let drawRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                let paddedRect = drawRect.insetBy(
+                    dx: -DesignConstants.highlightPaddingH,
+                    dy: -DesignConstants.highlightPaddingV
+                )
+                let path = NSBezierPath(roundedRect: paddedRect,
+                                        xRadius: DesignConstants.highlightCornerRadius,
+                                        yRadius: DesignConstants.highlightCornerRadius)
+
+                NSGraphicsContext.saveGraphicsState()
+                NSColor.labelColor.withAlphaComponent(isDark ? 0.2 : 0.08).setFill()
+                path.fill()
+                NSColor.labelColor.withAlphaComponent(isDark ? 0.3 : 0.15).setStroke()
+                path.lineWidth = DesignConstants.highlightBorderWidth
+                path.stroke()
+                NSGraphicsContext.restoreGraphicsState()
+            }
         }
     }
 
