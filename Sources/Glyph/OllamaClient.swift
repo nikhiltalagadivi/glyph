@@ -265,21 +265,9 @@ Output:
     }
 
     private func sanitize(_ text: String) -> String {
-        var clean = text
+        text
             .replacingOccurrences(of: "\u{0000}", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if clean.hasPrefix("```latex") {
-            clean.removeFirst("```latex".count)
-        } else if clean.hasPrefix("```") {
-            clean.removeFirst("```".count)
-        }
-        
-        if clean.hasSuffix("```") {
-            clean.removeLast("```".count)
-        }
-        
-        return clean.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

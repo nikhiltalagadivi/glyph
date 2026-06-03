@@ -1,13 +1,13 @@
 {
-  "originHash" : "8d470fdabdccab2f844fa4c4951d5389324421b99d6c640dc6c3b0c6abd3c561",
+  "originHash" : "c0d2d99f9aaa7b7efd81e375303a05e3cfa4ba8c0f2cf62c2f498ff863617e12",
   "pins" : [
     {
       "identity" : "latexswiftui",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/colinc86/LaTeXSwiftUI.git",
       "state" : {
-        "revision" : "cc677f66b9cc1751e09207621d62d1cda0200675",
-        "version" : "2.0.0"
+        "revision" : "c45e0fd45f64923c49c5904a9f9626bc8939f05f",
+        "version" : "1.5.0"
       }
     },
     {
