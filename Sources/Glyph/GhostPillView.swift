@@ -11,10 +11,7 @@ struct GhostPillView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if state.isThinking {
-                ProgressView()
-                    .controlSize(.small)
-            } else if !state.suggestionText.isEmpty {
+            if !state.suggestionText.isEmpty {
                 Text("⟲")
                     .foregroundColor(.secondary)
                 LaTeX(state.suggestionText)

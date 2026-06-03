@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
 
 struct EditorScreen: View {
     @State private var viewModel = EditorViewModel()
+    @State private var isMenuExpanded = false
 
     var body: some View {
         ZStack(alignment: .center) {
@@ -23,25 +24,81 @@ struct EditorScreen: View {
             VStack(spacing: 0) {
                 HStack {
                     Spacer()
-                    Menu {
-                        Button(action: { viewModel.toggleBold() }) { Label("Bold", systemImage: "bold") }
-                        Button(action: { viewModel.toggleItalic() }) { Label("Italic", systemImage: "italic") }
-                        Button(action: { viewModel.toggleUnderline() }) { Label("Underline", systemImage: "underline") }
-                        Button(action: { viewModel.toggleStrikethrough() }) { Label("Strikethrough", systemImage: "strikethrough") }
-                        Divider()
-                        Button(action: { viewModel.exportAsMarkdown() }) { Label("Export as Markdown", systemImage: "arrow.up.doc") }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 16, weight: .bold))
-                            .frame(width: 36, height: 36)
-                            .background(.regularMaterial, in: Circle())
-                            .overlay(Circle().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
-                            .shadow(color: Color.black.opacity(0.15), radius: 8, y: 3)
-                            .contentShape(Circle())
+                    HStack(spacing: 4) {
+                        if isMenuExpanded {
+                            Button(action: { viewModel.toggleBold() }) {
+                                Image(systemName: "bold")
+                                    .font(.system(size: 14, weight: viewModel.isBold ? .bold : .medium))
+                                    .foregroundStyle(viewModel.isBold ? .primary : .secondary)
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button(action: { viewModel.toggleItalic() }) {
+                                Image(systemName: "italic")
+                                    .font(.system(size: 14, weight: viewModel.isItalic ? .bold : .medium))
+                                    .foregroundStyle(viewModel.isItalic ? .primary : .secondary)
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button(action: { viewModel.toggleUnderline() }) {
+                                Image(systemName: "underline")
+                                    .font(.system(size: 14, weight: viewModel.isUnderlined ? .bold : .medium))
+                                    .foregroundStyle(viewModel.isUnderlined ? .primary : .secondary)
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Button(action: { viewModel.toggleStrikethrough() }) {
+                                Image(systemName: "strikethrough")
+                                    .font(.system(size: 14, weight: viewModel.isStrikethrough ? .bold : .medium))
+                                    .foregroundStyle(viewModel.isStrikethrough ? .primary : .secondary)
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Divider()
+                                .frame(height: 18)
+                                .padding(.horizontal, 4)
+                            
+                            Button(action: { viewModel.exportAsMarkdown() }) {
+                                Image(systemName: "arrow.up.doc")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 30, height: 30)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Divider()
+                                .frame(height: 18)
+                                .padding(.horizontal, 4)
+                        }
+                        
+                        Button(action: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                isMenuExpanded.toggle()
+                            }
+                        }) {
+                            Image(systemName: isMenuExpanded ? "xmark" : "ellipsis")
+                                .font(.system(size: 16, weight: .bold))
+                                .frame(width: 30, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
+                    .padding(isMenuExpanded ? .horizontal : .all, isMenuExpanded ? 14 : 0)
+                    .padding(isMenuExpanded ? .vertical : .all, isMenuExpanded ? 6 : 0)
+                    .frame(height: 36)
+                    .frame(width: isMenuExpanded ? nil : 36)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+                    .shadow(color: Color.black.opacity(0.15), radius: 8, y: 3)
                 }
                 .padding(.top, 12)
 
