@@ -195,30 +195,16 @@ Output:
 
         let nsText = snapshot.text as NSString
         let cursor = snapshot.cursorOffset
-        let prefixStart = max(0, cursor - 900)
+        let prefixStart = max(0, cursor - 150)
         let rawPrefix = nsText.substring(with: NSRange(location: prefixStart, length: cursor - prefixStart))
-        let lines = rawPrefix.components(separatedBy: .newlines)
-        let prefix = lines.suffix(3).joined(separator: "\n")
         
         let prompt = """
-You are a math-to-LaTeX converter.
-If the text contains math, extract ONLY the mathematical part, and output exactly: <original>exact math text</original><latex>\\( latex equation \\)</latex>
-DO NOT include introductory or surrounding plain text like "Ohm's law:" or "Therefore" in the <original> tag.
-If the text does NOT contain any math, output NONE.
-
-Input: The area of a circle is pi r squared
+Convert the math at the end of the text to LaTeX. Output EXACTLY: <original>math</original><latex>\\( latex \\)</latex>. Or NONE.
+Input: The area is pi r squared
 Output: <original>pi r squared</original><latex>\\( \\pi r^2 \\)</latex>
-
-Input: and the work w is the integral from 0 to 10 of x squared dx
-Output: <original>the integral from 0 to 10 of x squared dx</original><latex>\\( \\int_{0}^{10} x^2 \\, dx \\)</latex>
-
 Input: Ohm's law: V = IR
 Output: <original>V = IR</original><latex>\\( V = I R \\)</latex>
-
-Input: ELEC1111 Notes
-Output: NONE
-
-Input: \(prefix)
+Input: \(rawPrefix)
 Output:
 """
 
@@ -231,8 +217,8 @@ Output:
             options: OllamaOptions(
                 temperature: 0.0,
                 topP: 0.9,
-                numPredict: 80,
-                numCtx: 2048,
+                numPredict: 60,
+                numCtx: 512,
                 stop: ["\n"]
             )
         )
@@ -283,7 +269,7 @@ Output:
                 }
                 
                 let core = originalText.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).lowercased()
-                let nsPrefix = prefix as NSString
+                let nsPrefix = rawPrefix as NSString
                 var pIndex = nsPrefix.length - 1
                 let coreChars = Array(core)
                 var matchStart = -1

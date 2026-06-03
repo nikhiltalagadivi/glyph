@@ -180,7 +180,7 @@ final class EditorViewModel {
         }
 
         let isInstant = isSlashCommand
-        let debounceMs = isInstant ? 100 : 400
+        let debounceMs = isInstant ? 100 : 250
 
         let snapshot = EditorSnapshot(text: text, cursorOffset: cursor)
 
