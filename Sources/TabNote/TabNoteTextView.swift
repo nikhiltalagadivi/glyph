@@ -47,28 +47,16 @@ final class TabNoteTextView: NSTextView {
 
     // MARK: Ghost label
 
-    private lazy var ghostLabel: GlassStatusLabel = {
-        let cell = VerticallyCenteredTextFieldCell(textCell: "")
-        cell.isScrollable = false
-        cell.alignment = .left
-
-        let field = GlassStatusLabel()
-        field.cell = cell
-        field.textColor = NSColor.placeholderTextColor.withAlphaComponent(0.45)
-        field.backgroundColor = .clear
-        field.drawsBackground = false
-        field.isBezeled = false
-        field.isEditable = false
-        field.isSelectable = false
-        field.maximumNumberOfLines = 1
-        field.lineBreakMode = .byTruncatingTail
-        field.alphaValue = 0
-        return field
+    private let ghostState = GhostPillState()
+    private lazy var ghostHostingView: NSHostingView<GhostPillView> = {
+        let view = NSHostingView(rootView: GhostPillView(state: ghostState))
+        view.alphaValue = 0
+        return view
     }()
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        if ghostLabel.superview == nil { addSubview(ghostLabel) }
+        if ghostHostingView.superview == nil { addSubview(ghostHostingView) }
     }
 
     // MARK: - Key Handling
@@ -132,43 +120,27 @@ final class TabNoteTextView: NSTextView {
         }
 
         activeSuggestion = suggestion
-        ghostLabel.isThinking = false
-        ghostLabel.alignment = .left
+        ghostState.isThinking = false
 
         let firstLine = suggestion.text.components(separatedBy: .newlines).first ?? suggestion.text
-        let editorFont = font ?? .systemFont(ofSize: DesignConstants.editorFontSize)
-        let styled = NSMutableAttributedString()
+        ghostState.suggestionText = firstLine
 
         if let hlRange = suggestion.replaceRange {
-            styled.append(NSAttributedString(
-                string: " ⟲ \(firstLine)",
-                attributes: [
-                    .font: editorFont,
-                    .foregroundColor: NSColor.secondaryLabelColor
-                ]
-            ))
             if hlRange.length > 0, NSMaxRange(hlRange) <= (textStorage?.length ?? 0) {
                 temporaryHighlightRange = hlRange
                 needsDisplay = true
             }
-        } else {
-            styled.append(NSAttributedString(
-                string: firstLine,
-                attributes: [
-                    .font: editorFont,
-                    .foregroundColor: NSColor.tertiaryLabelColor
-                ]
-            ))
         }
-
-        appendTabKeyBadge(to: styled, font: editorFont)
-        ghostLabel.attributedStringValue = styled
-        positionGhostLabel()
-
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = DesignConstants.ghostFadeInDuration
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            ghostLabel.animator().alphaValue = 1
+        
+        // Wait for next run loop to allow SwiftUI view to size itself
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.activeSuggestion != nil else { return }
+            self.positionGhostLabel()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = DesignConstants.ghostFadeInDuration
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                self.ghostHostingView.animator().alphaValue = 1
+            }
         }
     }
 
@@ -178,18 +150,17 @@ final class TabNoteTextView: NSTextView {
             needsDisplay = true
         }
 
-        ghostLabel.isThinking = false
-        ghostLabel.alignment = .left
+        ghostState.isThinking = false
 
         let hadSuggestion = activeSuggestion != nil
         activeSuggestion = nil
 
         // Clear content immediately so it doesn't flash during fade-out
-        ghostLabel.attributedStringValue = NSAttributedString(string: "")
+        ghostState.suggestionText = ""
 
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = DesignConstants.ghostFadeOutDuration
-            ghostLabel.animator().alphaValue = 0
+            ghostHostingView.animator().alphaValue = 0
         }
 
         if hadSuggestion { editorViewModel?.didDismissSuggestion() }
@@ -197,21 +168,25 @@ final class TabNoteTextView: NSTextView {
 
     func showThinkingIndicator() {
         guard activeSuggestion == nil else { return }
-        ghostLabel.isThinking = true
-        ghostLabel.attributedStringValue = NSAttributedString(string: "")
-        positionGhostLabel()
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = DesignConstants.ghostFadeInDuration
-            ghostLabel.animator().alphaValue = 1
+        ghostState.isThinking = true
+        ghostState.suggestionText = ""
+        
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, self.ghostState.isThinking else { return }
+            self.positionGhostLabel()
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = DesignConstants.ghostFadeInDuration
+                self.ghostHostingView.animator().alphaValue = 1
+            }
         }
     }
 
     func hideThinkingIndicator() {
         guard activeSuggestion == nil else { return }
-        ghostLabel.isThinking = false
+        ghostState.isThinking = false
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = DesignConstants.ghostFadeOutDuration
-            ghostLabel.animator().alphaValue = 0
+            ghostHostingView.animator().alphaValue = 0
         }
     }
 
@@ -237,8 +212,8 @@ final class TabNoteTextView: NSTextView {
         defer {
             isInsertingSuggestion = false
             activeSuggestion = nil
-            ghostLabel.alphaValue = 0
-            ghostLabel.attributedStringValue = NSAttributedString(string: "")
+            ghostHostingView.alphaValue = 0
+            ghostState.suggestionText = ""
             // Reset typing attributes to prevent "small text" bug after math insertion
             resetTypingAttributes()
             editorViewModel?.didAcceptSuggestion()
@@ -307,13 +282,16 @@ final class TabNoteTextView: NSTextView {
     }
 
     private func positionGhostLabel() {
-        guard ghostLabel.attributedStringValue.length > 0 || ghostLabel.isThinking,
+        guard !ghostState.suggestionText.isEmpty || ghostState.isThinking,
               let lm = layoutManager,
               let tc = textContainer else { return }
 
         let cursor = selectedRange().location
         let textLen = textStorage?.length ?? 0
         let editorFont = font ?? .systemFont(ofSize: DesignConstants.editorFontSize)
+        
+        // Ensure layout is complete before querying metrics
+        lm.ensureLayout(for: tc)
 
         let (cursorX, cursorY, lineHeight) = cursorMetrics(
             cursor: cursor,
@@ -323,24 +301,13 @@ final class TabNoteTextView: NSTextView {
             fallbackFont: editorFont
         )
 
-        let maxWidth = max(0, bounds.width - cursorX - textContainerInset.width - 8)
+        let pillSize = ghostHostingView.fittingSize
+        let labelWidth = min(pillSize.width, max(0, bounds.width - cursorX - textContainerInset.width - 8))
+        let labelHeight = pillSize.height
+        let labelX = cursorX + 6
+        let labelY = cursorY + (lineHeight - labelHeight) / 2
 
-        let (labelX, labelY, labelWidth, labelHeight): (CGFloat, CGFloat, CGFloat, CGFloat)
-
-        if ghostLabel.isThinking {
-            let h = DesignConstants.ghostThinkingHeight
-            labelX = cursorX + 4
-            labelY = cursorY + (lineHeight - h) / 2
-            labelWidth = min(DesignConstants.ghostThinkingWidth, maxWidth)
-            labelHeight = h
-        } else {
-            labelX = cursorX + 1
-            labelY = cursorY
-            labelWidth = maxWidth
-            labelHeight = lineHeight
-        }
-
-        ghostLabel.frame = NSRect(x: labelX, y: labelY, width: labelWidth, height: labelHeight)
+        ghostHostingView.frame = NSRect(x: labelX, y: labelY, width: labelWidth, height: labelHeight)
     }
 
     /// Returns (cursorX, cursorY, lineHeight) for the current insertion point.
@@ -369,11 +336,12 @@ final class TabNoteTextView: NSTextView {
         let rectIndex = clampedIndex == textLen ? textLen - 1 : clampedIndex
         let glyphIdx = lm.glyphIndexForCharacter(at: rectIndex)
         let lineRect = lm.lineFragmentRect(forGlyphAt: glyphIdx, effectiveRange: nil)
+        let glyphLocation = lm.location(forGlyphAt: glyphIdx)
         let glyphRect = lm.boundingRect(forGlyphRange: NSRange(location: glyphIdx, length: 1), in: tc)
 
         let x = clampedIndex == textLen
-            ? glyphRect.maxX + insetX
-            : glyphRect.minX + insetX
+            ? lineRect.minX + glyphLocation.x + glyphRect.width + insetX
+            : lineRect.minX + glyphLocation.x + insetX
         return (x, lineRect.minY + insetY, lineRect.height)
     }
 
