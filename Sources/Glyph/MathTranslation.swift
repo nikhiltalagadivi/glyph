@@ -29,11 +29,26 @@ func createMathImage(for markdown: String) -> NSImage? {
         .foregroundColor(.black)
         .fixedSize()
 
-    let renderer = ImageRenderer(content: view)
-    renderer.scale = NSScreen.main?.backingScaleFactor ?? 2.0
-    let img = renderer.nsImage
-    img?.isTemplate = true
-    print("createMathImage for: '\(markdown)' -> img: \(String(describing: img))")
+    let hostingController = NSHostingController(rootView: view)
+    let viewSize = hostingController.sizeThatFits(in: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+    
+    guard viewSize.width > 0 && viewSize.height > 0 else {
+        return nil
+    }
+    
+    hostingController.view.setFrameSize(viewSize)
+    hostingController.view.layout()
+    
+    guard let rep = hostingController.view.bitmapImageRepForCachingDisplay(in: hostingController.view.bounds) else {
+        return nil
+    }
+    hostingController.view.cacheDisplay(in: hostingController.view.bounds, to: rep)
+    
+    let img = NSImage(size: viewSize)
+    img.addRepresentation(rep)
+    img.isTemplate = true
+    
+    print("createMathImage via NSHostingController for: '\(markdown)' -> img: \(img)")
     return img
 }
 
