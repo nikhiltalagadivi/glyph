@@ -407,7 +407,7 @@ final class GlyphTextView: NSTextView {
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
 
-        guard let lm = layoutManager, let tc = textContainer else { return }
+        guard let lm = layoutManager, textContainer != nil else { return }
         let origin = textContainerOrigin
         let isDark = effectiveAppearance.name == .darkAqua || effectiveAppearance.name == .vibrantDark
 
