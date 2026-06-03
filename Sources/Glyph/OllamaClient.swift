@@ -173,14 +173,12 @@ Output:
         }
     }
 
-    func suggestOllama(for snapshot: EditorSnapshot) async -> SuggestionResult? {
-        // Don't spam retries during startup — cooldown after failures
+    func suggestOllama(for mathPhrase: String, replaceRange: NSRange) async -> SuggestionResult? {
         if let lastFailure = lastFailureTime,
            ContinuousClock.now - lastFailure < retryCooldown {
             return nil
         }
 
-        // Ensure the bundled runtime is running and ready
         do {
             try await runtime.ensureRunning()
         } catch is CancellationError {
@@ -192,19 +190,14 @@ Output:
             lastMessage = error.localizedDescription
             return nil
         }
-
-        let nsText = snapshot.text as NSString
-        let cursor = snapshot.cursorOffset
-        let prefixStart = max(0, cursor - 150)
-        let rawPrefix = nsText.substring(with: NSRange(location: prefixStart, length: cursor - prefixStart))
         
         let prompt = """
-Convert the math at the end of the text to LaTeX. Output EXACTLY: <original>math</original><latex>\\( latex \\)</latex>. Or NONE.
-Input: The area is pi r squared
-Output: <original>pi r squared</original><latex>\\( \\pi r^2 \\)</latex>
-Input: Ohm's law: V = IR
-Output: <original>V = IR</original><latex>\\( V = I R \\)</latex>
-Input: \(rawPrefix)
+Translate math to LaTeX. ONLY raw LaTeX.
+Input: pi r squared
+Output: \\pi r^2
+Input: integral from 0 to infinity of x dx
+Output: \\int_{0}^{\\infty} x \\, dx
+Input: \(mathPhrase)
 Output:
 """
 
@@ -242,84 +235,23 @@ Output:
             let ollamaResponse = try JSONDecoder().decode(OllamaResponse.self, from: data)
             let rawSuggestion = sanitize(ollamaResponse.response)
 
-            if rawSuggestion.trimmingCharacters(in: .whitespacesAndNewlines) == "NONE" || rawSuggestion.isEmpty {
+            let cleaned = rawSuggestion.trimmingCharacters(in: .whitespacesAndNewlines)
+            if cleaned.uppercased() == "NONE" || cleaned.isEmpty {
                 lastMessage = ""
                 return nil
             }
 
-            // Success — clear failure state
             lastFailureTime = nil
             lastMessage = ""
 
-            let pattern = "<original>(.*?)</original>\\s*<latex>(.*?)</latex>"
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]),
-               let match = regex.firstMatch(in: rawSuggestion, range: NSRange(rawSuggestion.startIndex..., in: rawSuggestion)) {
-                
-                let nsString = rawSuggestion as NSString
-                let originalText = nsString.substring(with: match.range(at: 1))
-                let latexText = nsString.substring(with: match.range(at: 2))
-                
-                let cleanedLatex = latexText.trimmingCharacters(in: .whitespacesAndNewlines)
-                let cleanedOriginal = originalText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if cleanedOriginal.uppercased() == "NONE" || cleanedLatex.isEmpty
-                    || cleanedLatex.contains("\\text{None}") || cleanedLatex.contains("\\text{NONE}")
-                    || cleanedLatex == "\\\\( \\\\)" || cleanedLatex == "\\( \\)" {
-                    lastMessage = ""
-                    return nil
-                }
-                
-                let core = originalText.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).lowercased()
-                let nsPrefix = rawPrefix as NSString
-                var pIndex = nsPrefix.length - 1
-                let coreChars = Array(core)
-                var matchStart = -1
-                var matchEnd = -1
-                
-                guard !coreChars.isEmpty else { return nil }
-                
-                while pIndex >= 0 {
-                    let charStr = nsPrefix.substring(with: NSRange(location: pIndex, length: 1))
-                    if charStr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        pIndex -= 1
-                        continue
-                    }
-                    
-                    if charStr.lowercased() == String(coreChars.last!) {
-                        var cIndex = coreChars.count - 1
-                        var tempPIndex = pIndex
-                        
-                        while cIndex >= 0 && tempPIndex >= 0 {
-                            let tempCharStr = nsPrefix.substring(with: NSRange(location: tempPIndex, length: 1))
-                            if tempCharStr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                tempPIndex -= 1
-                                continue
-                            }
-                            if tempCharStr.lowercased() == String(coreChars[cIndex]) {
-                                cIndex -= 1
-                                tempPIndex -= 1
-                            } else {
-                                break
-                            }
-                        }
-                        
-                        if cIndex < 0 {
-                            matchStart = tempPIndex + 1
-                            matchEnd = pIndex
-                            break
-                        }
-                    }
-                    pIndex -= 1
-                }
-                
-                if matchStart != -1 {
-                    let absoluteOffset = cursor - nsPrefix.length
-                    let replaceRange = NSRange(location: absoluteOffset + matchStart, length: matchEnd - matchStart + 1)
-                    return SuggestionResult(text: latexText.trimmingCharacters(in: .whitespacesAndNewlines), replaceRange: replaceRange)
-                }
-                
-                return nil
+            let latex: String
+            if cleaned.hasPrefix("\\(") || cleaned.hasPrefix("\\[") {
+                latex = cleaned
+            } else {
+                latex = "\\( \(cleaned) \\)"
             }
-            return nil
+
+            return SuggestionResult(text: latex, replaceRange: replaceRange)
 
         } catch is CancellationError {
             return nil

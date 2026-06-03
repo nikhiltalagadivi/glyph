@@ -213,8 +213,10 @@ final class EditorViewModel {
                 }
                 return
             }
+            
             // 2. Normal typing -> heuristic check first
-            guard self.mightContainMath(lastLine) else {
+            let mathRange = MathScopeScanner.extractMath(from: prefix)
+            guard let range = mathRange else {
                 guard !Task.isCancelled, currentID == self.requestID else { return }
                 if self.statusMessage == "thinking…" || self.statusMessage == "⇥ Tab" {
                     self.statusMessage = ""
@@ -225,7 +227,8 @@ final class EditorViewModel {
 
             // 3. Normal typing -> query local AI (Ollama)
             self.statusMessage = "thinking…"
-            let result = await self.engine.suggestOllama(for: snapshot)
+            let mathPhrase = (prefix as NSString).substring(with: range)
+            let result = await self.engine.suggestOllama(for: mathPhrase, replaceRange: range)
             let msg = await self.engine.statusMessage()
 
             guard !Task.isCancelled, currentID == self.requestID else { return }
@@ -265,32 +268,6 @@ final class EditorViewModel {
     func didDismissSuggestion() {
         currentSuggestion = nil
         statusMessage = ""
-    }
-    
-    private func mightContainMath(_ text: String) -> Bool {
-        let maxLen = 150
-        let suffix = String(text.suffix(maxLen)).lowercased()
-        
-        let mathChars = CharacterSet(charactersIn: "+-*/^=<>()[]{}_\\")
-        if suffix.rangeOfCharacter(from: mathChars) != nil {
-            return true
-        }
-        
-        let mathKeywords: Set<String> = [
-            "squared", "cubed", "power", "plus", "minus", "times", "divide", "over",
-            "sum", "product", "integral", "limit", "derivative", "gradient", "divergence",
-            "curl", "matrix", "vector", "sqrt", "root", "sin", "cos", "tan", "log", "ln",
-            "pi", "theta", "alpha", "beta", "gamma", "delta", "epsilon", "lambda",
-            "mu", "sigma", "omega", "phi", "psi", "tau", "rho", "infinity", "equals", "dot", "cross"
-        ]
-        
-        let words = suffix.components(separatedBy: CharacterSet.alphanumerics.inverted)
-        for word in words {
-            if mathKeywords.contains(word) {
-                return true
-            }
-        }
-        return false
     }
 
     // MARK: Export
