@@ -1,5 +1,5 @@
 // ============================================================
-// TabNote — Freewriting with AI Tab Completion
+// Glyph — Freewriting with AI Tab Completion
 // macOS 26 · SwiftUI · Liquid Glass · Ollama
 // ============================================================
 
@@ -26,7 +26,7 @@ struct RichTextEditor: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
 
-        let textView = TabNoteTextView()
+        let textView = GlyphTextView()
         textView.delegate = context.coordinator
         textView.editorViewModel = viewModel
         textView.backgroundColor = .textBackgroundColor

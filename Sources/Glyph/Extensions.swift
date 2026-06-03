@@ -1,5 +1,5 @@
 // ============================================================
-// TabNote — Freewriting with AI Tab Completion
+// Glyph — Freewriting with AI Tab Completion
 // macOS 26 · SwiftUI · Liquid Glass · Ollama
 // ============================================================
 

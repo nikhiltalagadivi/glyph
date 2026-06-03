@@ -1,5 +1,5 @@
 // ============================================================
-// TabNote — Freewriting with AI Tab Completion
+// Glyph — Freewriting with AI Tab Completion
 // macOS 26 · SwiftUI · Liquid Glass · Ollama
 // ============================================================
 
@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class EditorViewModel {
     // Text view reference (set by NSViewRepresentable)
-    weak var textView: TabNoteTextView?
+    weak var textView: GlyphTextView?
 
     // Current suggestion state
     var currentSuggestion: SuggestionResult?
@@ -156,9 +156,7 @@ final class EditorViewModel {
 
         let prefix = (text as NSString).substring(to: cursor)
         let isSlashCommand = prefix.range(of: "(?:\\s|^)/[^\\n]*$", options: .regularExpression) != nil
-        let isLocalMath = !isSlashCommand && LocalMathTranslator.translate(text: prefix) != nil
-        
-        let isInstant = isSlashCommand || isLocalMath
+        let isInstant = isSlashCommand
         let debounceMs = isInstant ? 100 : 400
 
         let snapshot = EditorSnapshot(text: text, cursorOffset: cursor)
@@ -193,45 +191,27 @@ final class EditorViewModel {
                 return
             }
             
-            // 2. Otherwise (normal typing), try local translation only
-            if let result = await self.engine.suggestLocal(for: snapshot) {
-                guard !Task.isCancelled, currentID == self.requestID else { return }
-                guard let tv = self.textView,
-                      tv.string == text,
-                      tv.selectedRange().location == cursor,
-                      tv.selectedRange().length == 0 else { return }
-                
-                if result.text != self.lastAcceptedSuggestionText {
-                    self.currentSuggestion = result
-                    self.statusMessage = "⇥ Tab"
-                    tv.showSuggestion(result)
-                    return
-                }
-            }
+            // 2. Normal typing -> query local AI (Ollama)
+            self.statusMessage = "thinking…"
+            let result = await self.engine.suggestOllama(for: snapshot)
+            let msg = await self.engine.statusMessage()
 
-            // 3. Fallback to Ollama if it might contain math
-            if await self.engine.mightContainMath(prefix) {
-                self.statusMessage = "thinking…"
-                let result = await self.engine.suggestOllama(for: snapshot)
-                let msg = await self.engine.statusMessage()
+            guard !Task.isCancelled, currentID == self.requestID else { return }
+            guard let tv = self.textView,
+                  tv.string == text,
+                  tv.selectedRange().location == cursor,
+                  tv.selectedRange().length == 0 else { return }
 
-                guard !Task.isCancelled, currentID == self.requestID else { return }
-                guard let tv = self.textView,
-                      tv.string == text,
-                      tv.selectedRange().location == cursor,
-                      tv.selectedRange().length == 0 else { return }
-
-                if let suggestion = result,
-                   suggestion.text != self.lastAcceptedSuggestionText,
-                   !suggestion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    self.currentSuggestion = suggestion
-                    self.statusMessage = "⇥ Tab"
-                    tv.showSuggestion(suggestion)
-                    return
-                } else {
-                    if self.statusMessage == "thinking…" {
-                        self.statusMessage = msg
-                    }
+            if let suggestion = result,
+               suggestion.text != self.lastAcceptedSuggestionText,
+               !suggestion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.currentSuggestion = suggestion
+                self.statusMessage = "⇥ Tab"
+                tv.showSuggestion(suggestion)
+                return
+            } else {
+                if self.statusMessage == "thinking…" {
+                    self.statusMessage = msg
                 }
             }
             

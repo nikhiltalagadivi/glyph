@@ -7,9 +7,9 @@ VENDOR_DIR="$ROOT_DIR/vendor"
 OLLAMA_BIN="$VENDOR_DIR/ollama/ollama"
 MODEL_DIR="$VENDOR_DIR/ollama-models"
 PACKAGE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/tabnote-package.XXXXXX")"
-APP_DIR="$PACKAGE_ROOT/TabNote.app"
+APP_DIR="$PACKAGE_ROOT/Glyph.app"
 DMG_ROOT="$PACKAGE_ROOT/dmgroot"
-DMG_PATH="$ROOT_DIR/dist/TabNote.dmg"
+DMG_PATH="$ROOT_DIR/dist/Glyph.dmg"
 trap 'rm -rf "$PACKAGE_ROOT"' EXIT
 
 swift build -c release --package-path "$ROOT_DIR"
@@ -24,10 +24,10 @@ MSG
   exit 1
 fi
 
-rm -rf "$ROOT_DIR/dist/TabNote.app" "$DMG_PATH"
+rm -rf "$ROOT_DIR/dist/Glyph.app" "$DMG_PATH"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources/Ollama"
 
-cp "$BUILD_DIR/TabNote" "$APP_DIR/Contents/MacOS/TabNote"
+cp "$BUILD_DIR/Glyph" "$APP_DIR/Contents/MacOS/Glyph"
 cp "$OLLAMA_BIN" "$APP_DIR/Contents/Resources/Ollama/ollama"
 ditto --noextattr --noqtn "$MODEL_DIR" "$APP_DIR/Contents/Resources/OllamaModels"
 
@@ -37,13 +37,13 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>TabNote</string>
+  <string>Glyph</string>
   <key>CFBundleIdentifier</key>
   <string>com.tabnote.app</string>
   <key>CFBundleName</key>
-  <string>TabNote</string>
+  <string>Glyph</string>
   <key>CFBundleDisplayName</key>
-  <string>TabNote</string>
+  <string>Glyph</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -64,11 +64,11 @@ xattr -cr "$APP_DIR"
 codesign --force --deep --sign - "$APP_DIR"
 
 mkdir -p "$DMG_ROOT"
-ditto --noextattr --noqtn "$APP_DIR" "$DMG_ROOT/TabNote.app"
-hdiutil create -volname "TabNote" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH"
+ditto --noextattr --noqtn "$APP_DIR" "$DMG_ROOT/Glyph.app"
+hdiutil create -volname "Glyph" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH"
 
 # Also place the uncompressed .app in dist for easy access
 cp -R "$APP_DIR" "$ROOT_DIR/dist/"
 
 echo "Built DMG: $DMG_PATH"
-echo "Built App: $ROOT_DIR/dist/TabNote.app"
+echo "Built App: $ROOT_DIR/dist/Glyph.app"

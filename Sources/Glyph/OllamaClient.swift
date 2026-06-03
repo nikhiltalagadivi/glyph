@@ -1,5 +1,5 @@
 // ============================================================
-// TabNote — Freewriting with AI Tab Completion
+// Glyph — Freewriting with AI Tab Completion
 // macOS 26 · SwiftUI · Liquid Glass · Ollama
 // ============================================================
 
@@ -63,64 +63,7 @@ actor OllamaSuggestionEngine {
         }
     }
 
-    func suggestLocal(for snapshot: EditorSnapshot) -> SuggestionResult? {
-        let nsText = snapshot.text as NSString
-        let cursor = snapshot.cursorOffset
-        let prefixStart = max(0, cursor - 900)
-        let prefix = nsText.substring(with: NSRange(location: prefixStart, length: cursor - prefixStart))
-        
-        guard let localResult = LocalMathTranslator.translate(text: prefix) else {
-            return nil
-        }
-        
-        let originalText = localResult.original
-        
-        let rangeToSearch = NSRange(location: max(0, cursor - originalText.count - 20), length: min(cursor, originalText.count + 20))
-        if let regex = try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: originalText), options: [.caseInsensitive]) {
-            let matches = regex.matches(in: snapshot.text, options: [], range: rangeToSearch)
-            if let lastMatch = matches.last {
-                let replaceRange = lastMatch.range
-                return SuggestionResult(text: localResult.latex, replaceRange: replaceRange)
-            }
-        }
-        
-        let startLoc = max(0, cursor - originalText.count)
-        let replaceRange = NSRange(location: startLoc, length: cursor - startLoc)
-        return SuggestionResult(text: localResult.latex, replaceRange: replaceRange)
-    }
 
-    func mightContainMath(_ text: String) -> Bool {
-        let nsText = text as NSString
-        let maxLen = 150
-        let length = nsText.length
-        let suffix: String
-        if length <= maxLen {
-            suffix = text
-        } else {
-            suffix = nsText.substring(from: length - maxLen)
-        }
-        
-        let mathChars = CharacterSet(charactersIn: "+-*/^=<>()[]{}_\\")
-        if suffix.rangeOfCharacter(from: mathChars) != nil {
-            return true
-        }
-        let mathKeywords: Set<String> = [
-            "squared", "cubed", "power", "plus", "minus", "times", "divide", "over",
-            "sum", "product", "integral", "limit", "derivative", "gradient", "divergence",
-            "curl", "matrix", "vector", "sqrt", "root", "sin", "cos", "tan", "log", "ln",
-            "pi", "theta", "alpha", "beta", "gamma", "delta", "epsilon", "lambda",
-            "mu", "sigma", "omega", "phi", "psi", "tau", "rho", "infinity", "equals", "dot", "cross"
-        ]
-        
-        let words = suffix.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted)
-        for word in words {
-            if mathKeywords.contains(word) {
-                return true
-            }
-        }
-        
-        return false
-    }
 
     func suggestSlashAI(for snapshot: EditorSnapshot) async -> SuggestionResult? {
         if let lastFailure = lastFailureTime,

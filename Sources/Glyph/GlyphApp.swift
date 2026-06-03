@@ -1,5 +1,5 @@
 // ============================================================
-// TabNote — Freewriting with AI Tab Completion
+// Glyph — Freewriting with AI Tab Completion
 // macOS 26 · SwiftUI · Liquid Glass · Ollama
 // ============================================================
 
@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 // Custom key to store LaTeX source on text attachments for Markdown export
 
 @main
-struct TabNoteApp: App {
+struct GlyphApp: App {
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)

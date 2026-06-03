@@ -33,4 +33,4 @@ MSG
 fi
 
 ollama pull "$MODEL"
-echo "Ready: TabNote will use $MODEL through http://127.0.0.1:11434"
+echo "Ready: Glyph will use $MODEL through http://127.0.0.1:11434"

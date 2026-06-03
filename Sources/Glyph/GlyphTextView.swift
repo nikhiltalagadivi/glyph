@@ -1,5 +1,5 @@
 // ============================================================
-// TabNote — Freewriting with AI Tab Completion
+// Glyph — Freewriting with AI Tab Completion
 // macOS 26 · SwiftUI · Liquid Glass · Ollama
 // ============================================================
 
@@ -33,9 +33,9 @@ final class GlassStatusLabel: NSTextField {
     var isThinking = false
 }
 
-// MARK: - TabNote Text View
+// MARK: - Glyph Text View
 
-final class TabNoteTextView: NSTextView {
+final class GlyphTextView: NSTextView {
 
     weak var editorViewModel: EditorViewModel?
 
