@@ -67,4 +67,8 @@ mkdir -p "$DMG_ROOT"
 ditto --noextattr --noqtn "$APP_DIR" "$DMG_ROOT/TabNote.app"
 hdiutil create -volname "TabNote" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG_PATH"
 
-echo "$DMG_PATH"
+# Also place the uncompressed .app in dist for easy access
+cp -R "$APP_DIR" "$ROOT_DIR/dist/"
+
+echo "Built DMG: $DMG_PATH"
+echo "Built App: $ROOT_DIR/dist/TabNote.app"
