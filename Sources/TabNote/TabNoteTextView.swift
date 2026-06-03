@@ -30,72 +30,7 @@ private enum DesignConstants {
 
 final class GlassStatusLabel: NSTextField {
 
-    var isThinking = false {
-        didSet {
-            guard isThinking != oldValue else { return }
-            isThinking ? startDisplayLink() : stopDisplayLink()
-            needsDisplay = true
-        }
-    }
-
-    // CVDisplayLink runs on a background thread; we just mark needsDisplay on main.
-    private var displayLink: CVDisplayLink?
-
-    private func startDisplayLink() {
-        guard displayLink == nil else { return }
-        CVDisplayLinkCreateWithActiveCGDisplays(&displayLink)
-        guard let dl = displayLink else { return }
-
-        CVDisplayLinkSetOutputHandler(dl) { [weak self] _, _, _, _, _ in
-            DispatchQueue.main.async { self?.needsDisplay = true }
-            return kCVReturnSuccess
-        }
-        CVDisplayLinkStart(dl)
-    }
-
-    private func stopDisplayLink() {
-        guard let dl = displayLink else { return }
-        CVDisplayLinkStop(dl)
-        displayLink = nil
-    }
-
-    deinit { stopDisplayLink() }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard isThinking else {
-            super.draw(dirtyRect)
-            return
-        }
-
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-
-        let center = NSPoint(x: bounds.midX, y: bounds.midY)
-        let r = DesignConstants.spinnerRadius
-        let lw = DesignConstants.spinnerLineWidth
-
-        // Track
-        let track = NSBezierPath()
-        track.appendArc(withCenter: center, radius: r, startAngle: 0, endAngle: 360)
-        NSColor.labelColor.withAlphaComponent(0.15).setStroke()
-        track.lineWidth = lw
-        track.stroke()
-
-        // Spinning arc
-        let angle = CGFloat(CACurrentMediaTime() * DesignConstants.spinnerSpeed * 360)
-            .truncatingRemainder(dividingBy: 360)
-        let arc = NSBezierPath()
-        arc.appendArc(
-            withCenter: center,
-            radius: r,
-            startAngle: angle,
-            endAngle: angle + DesignConstants.spinnerArcDegrees
-        )
-        NSColor.labelColor.withAlphaComponent(0.6).setStroke()
-        arc.lineWidth = lw
-        arc.lineCapStyle = .round
-        arc.stroke()
-    }
+    var isThinking = false
 }
 
 // MARK: - TabNote Text View

@@ -37,6 +37,9 @@ struct RichTextEditor: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
+        if #available(macOS 14.0, *) {
+            textView.inlinePredictionType = .no
+        }
         textView.allowsUndo = true
         textView.font = .systemFont(ofSize: 18)
         textView.textColor = .labelColor
