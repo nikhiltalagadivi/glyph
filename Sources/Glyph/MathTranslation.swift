@@ -25,8 +25,10 @@ func createMathImage(for markdown: String) -> NSImage? {
 
     // Render at 20pt to match the visual weight of the surrounding 18pt system font
     let view = LaTeX(processed)
+        .unencoded()
         .font(.system(size: 20))
         .foregroundColor(.black)
+        .renderingStyle(.wait)
         .fixedSize()
 
     let hostingController = NSHostingController(rootView: view)
