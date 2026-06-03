@@ -64,23 +64,29 @@ actor OllamaSuggestionEngine {
     }
 
     func suggestLocal(for snapshot: EditorSnapshot) -> SuggestionResult? {
-        guard let localResult = LocalMathTranslator.translate(text: snapshot.text) else {
+        let nsText = snapshot.text as NSString
+        let cursor = snapshot.cursorOffset
+        let prefixStart = max(0, cursor - 900)
+        let prefix = nsText.substring(with: NSRange(location: prefixStart, length: cursor - prefixStart))
+        
+        guard let localResult = LocalMathTranslator.translate(text: prefix) else {
             return nil
         }
         
-        let cursor = snapshot.cursorOffset
         let originalText = localResult.original
         
         let rangeToSearch = NSRange(location: max(0, cursor - originalText.count - 20), length: min(cursor, originalText.count + 20))
-        if let regex = try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: originalText), options: [.caseInsensitive]),
-           let match = regex.firstMatch(in: snapshot.text, options: [], range: rangeToSearch) {
-            let replaceRange = match.range
-            return SuggestionResult(text: localResult.latex, replaceRange: replaceRange)
-        } else {
-            let startLoc = max(0, cursor - originalText.count)
-            let replaceRange = NSRange(location: startLoc, length: cursor - startLoc)
-            return SuggestionResult(text: localResult.latex, replaceRange: replaceRange)
+        if let regex = try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: originalText), options: [.caseInsensitive]) {
+            let matches = regex.matches(in: snapshot.text, options: [], range: rangeToSearch)
+            if let lastMatch = matches.last {
+                let replaceRange = lastMatch.range
+                return SuggestionResult(text: localResult.latex, replaceRange: replaceRange)
+            }
         }
+        
+        let startLoc = max(0, cursor - originalText.count)
+        let replaceRange = NSRange(location: startLoc, length: cursor - startLoc)
+        return SuggestionResult(text: localResult.latex, replaceRange: replaceRange)
     }
 
     func mightContainMath(_ text: String) -> Bool {

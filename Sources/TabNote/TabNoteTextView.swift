@@ -8,91 +8,115 @@ import SwiftUI
 import LaTeXSwiftUI
 import UniformTypeIdentifiers
 
-// Custom key to store LaTeX source on text attachments for Markdown export
+// MARK: - Design Constants
+
+private enum DesignConstants {
+    static let editorFontSize: CGFloat = 18
+    static let spinnerRadius: CGFloat = 7.0
+    static let spinnerLineWidth: CGFloat = 2.5
+    static let spinnerArcDegrees: CGFloat = 100
+    static let spinnerSpeed: Double = 1.2
+    static let ghostFadeInDuration: TimeInterval = 0.2
+    static let ghostFadeOutDuration: TimeInterval = 0.1
+    static let highlightCornerRadius: CGFloat = 6
+    static let highlightPaddingH: CGFloat = 4
+    static let highlightPaddingV: CGFloat = 2
+    static let highlightBorderWidth: CGFloat = 1.0
+    static let ghostThinkingWidth: CGFloat = 36
+    static let ghostThinkingHeight: CGFloat = 22
+}
+
+// MARK: - Spinner View (CADisplayLink-driven, zero-overhead when idle)
 
 final class GlassStatusLabel: NSTextField {
-    nonisolated(unsafe) private var animationTimer: Timer?
-    
+
     var isThinking = false {
         didSet {
-            if isThinking {
-                startAnimation()
-            } else {
-                stopAnimation()
-            }
+            guard isThinking != oldValue else { return }
+            isThinking ? startDisplayLink() : stopDisplayLink()
             needsDisplay = true
         }
     }
-    
-    private func startAnimation() {
-        animationTimer?.invalidate()
-        animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.needsDisplay = true
-            }
+
+    // CVDisplayLink runs on a background thread; we just mark needsDisplay on main.
+    private var displayLink: CVDisplayLink?
+
+    private func startDisplayLink() {
+        guard displayLink == nil else { return }
+        CVDisplayLinkCreateWithActiveCGDisplays(&displayLink)
+        guard let dl = displayLink else { return }
+
+        CVDisplayLinkSetOutputHandler(dl) { [weak self] _, _, _, _, _ in
+            DispatchQueue.main.async { self?.needsDisplay = true }
+            return kCVReturnSuccess
         }
-        // Ensure it runs during scrolling / tracking
-        RunLoop.current.add(animationTimer!, forMode: .common)
+        CVDisplayLinkStart(dl)
     }
-    
-    private func stopAnimation() {
-        animationTimer?.invalidate()
-        animationTimer = nil
+
+    private func stopDisplayLink() {
+        guard let dl = displayLink else { return }
+        CVDisplayLinkStop(dl)
+        displayLink = nil
     }
-    
-    deinit {
-        animationTimer?.invalidate()
-    }
-    
+
+    deinit { stopDisplayLink() }
+
     override func draw(_ dirtyRect: NSRect) {
-        if isThinking {
-            NSGraphicsContext.saveGraphicsState()
-            
-            let time = CACurrentMediaTime()
-            let midX = bounds.width / 2
-            let midY = bounds.height / 2
-            let radius: CGFloat = 7.0
-            
-            // Draw track
-            let trackPath = NSBezierPath()
-            trackPath.appendArc(withCenter: NSPoint(x: midX, y: midY), radius: radius, startAngle: 0, endAngle: 360)
-            NSColor.labelColor.withAlphaComponent(0.15).setStroke()
-            trackPath.lineWidth = 2.5
-            trackPath.stroke()
-            
-            // Draw spinning arc
-            let speed: Double = 1.2
-            let startAngle = CGFloat(time * speed * 360).truncatingRemainder(dividingBy: 360)
-            let endAngle = startAngle + 100.0 // 100 degree arc
-            
-            let spinPath = NSBezierPath()
-            spinPath.appendArc(withCenter: NSPoint(x: midX, y: midY), radius: radius, startAngle: startAngle, endAngle: endAngle)
-            NSColor.labelColor.withAlphaComponent(0.6).setStroke()
-            spinPath.lineWidth = 2.5
-            spinPath.lineCapStyle = .round
-            spinPath.stroke()
-            
-            NSGraphicsContext.restoreGraphicsState()
-        } else {
+        guard isThinking else {
             super.draw(dirtyRect)
+            return
         }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        let center = NSPoint(x: bounds.midX, y: bounds.midY)
+        let r = DesignConstants.spinnerRadius
+        let lw = DesignConstants.spinnerLineWidth
+
+        // Track
+        let track = NSBezierPath()
+        track.appendArc(withCenter: center, radius: r, startAngle: 0, endAngle: 360)
+        NSColor.labelColor.withAlphaComponent(0.15).setStroke()
+        track.lineWidth = lw
+        track.stroke()
+
+        // Spinning arc
+        let angle = CGFloat(CACurrentMediaTime() * DesignConstants.spinnerSpeed * 360)
+            .truncatingRemainder(dividingBy: 360)
+        let arc = NSBezierPath()
+        arc.appendArc(
+            withCenter: center,
+            radius: r,
+            startAngle: angle,
+            endAngle: angle + DesignConstants.spinnerArcDegrees
+        )
+        NSColor.labelColor.withAlphaComponent(0.6).setStroke()
+        arc.lineWidth = lw
+        arc.lineCapStyle = .round
+        arc.stroke()
     }
 }
 
-// MARK: - TabNote Text View (NSTextView subclass)
+// MARK: - TabNote Text View
 
-class TabNoteTextView: NSTextView {
+final class TabNoteTextView: NSTextView {
+
     weak var editorViewModel: EditorViewModel?
 
     // Ghost text state
     private var activeSuggestion: SuggestionResult?
-    var isInsertingSuggestion = false
+
+    /// True while we are programmatically inserting text; suppresses re-entrant suggestion triggers.
+    private(set) var isInsertingSuggestion = false
+
+    // MARK: Ghost label
 
     private lazy var ghostLabel: GlassStatusLabel = {
         let cell = VerticallyCenteredTextFieldCell(textCell: "")
         cell.isScrollable = false
         cell.alignment = .left
-        
+
         let field = GlassStatusLabel()
         field.cell = cell
         field.textColor = NSColor.placeholderTextColor.withAlphaComponent(0.45)
@@ -109,15 +133,12 @@ class TabNoteTextView: NSTextView {
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
-        if ghostLabel.superview == nil {
-            addSubview(ghostLabel)
-        }
+        if ghostLabel.superview == nil { addSubview(ghostLabel) }
     }
 
-    // MARK: Key Handling
+    // MARK: - Key Handling
 
     override func keyDown(with event: NSEvent) {
-        // ⌘B / ⌘I / ⌘U / ⌘E keyboard shortcuts
         if event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers {
             case "b":
@@ -140,42 +161,32 @@ class TabNoteTextView: NSTextView {
             }
         }
 
-        // Tab → accept ghost suggestion
-        if event.keyCode == 48, activeSuggestion != nil {
+        switch event.keyCode {
+        case 48 where activeSuggestion != nil: // Tab
             acceptCurrentSuggestion()
             return
-        }
-
-        // Escape → dismiss ghost suggestion
-        if event.keyCode == 53, activeSuggestion != nil {
+        case 53 where activeSuggestion != nil: // Escape
             clearSuggestion()
             return
+        default:
+            if activeSuggestion != nil { clearSuggestion() }
+            super.keyDown(with: event)
         }
-
-        // Any other key → clear ghost text before processing
-        if activeSuggestion != nil {
-            clearSuggestion()
-        }
-
-        super.keyDown(with: event)
     }
 
-    // Prevent textDidChange from triggering new suggestions while inserting
     override func didChangeText() {
         super.didChangeText()
-        if isInsertingSuggestion { return }
-        self.needsDisplay = true
+        guard !isInsertingSuggestion else { return }
+        needsDisplay = true
     }
 
     override func layout() {
         super.layout()
-        if activeSuggestion != nil {
-            positionGhostLabel()
-        }
+        if activeSuggestion != nil { positionGhostLabel() }
     }
 
-    // MARK: Ghost Text
-    
+    // MARK: - Ghost Text Public API
+
     private var temporaryHighlightRange: NSRange?
 
     func showSuggestion(_ suggestion: SuggestionResult) {
@@ -188,11 +199,11 @@ class TabNoteTextView: NSTextView {
         activeSuggestion = suggestion
         ghostLabel.isThinking = false
         ghostLabel.alignment = .left
-        
-        let firstLine = suggestion.text.components(separatedBy: .newlines).first ?? suggestion.text
-        let editorFont = self.font ?? .systemFont(ofSize: 18)
 
+        let firstLine = suggestion.text.components(separatedBy: .newlines).first ?? suggestion.text
+        let editorFont = font ?? .systemFont(ofSize: DesignConstants.editorFontSize)
         let styled = NSMutableAttributedString()
+
         if let hlRange = suggestion.replaceRange {
             styled.append(NSAttributedString(
                 string: " ⟲ \(firstLine)",
@@ -201,11 +212,9 @@ class TabNoteTextView: NSTextView {
                     .foregroundColor: NSColor.secondaryLabelColor
                 ]
             ))
-            
-            // Highlight the text that will be replaced via custom drawing
-            if hlRange.length > 0 && NSMaxRange(hlRange) <= (textStorage?.length ?? 0) {
-                self.temporaryHighlightRange = hlRange
-                self.needsDisplay = true
+            if hlRange.length > 0, NSMaxRange(hlRange) <= (textStorage?.length ?? 0) {
+                temporaryHighlightRange = hlRange
+                needsDisplay = true
             }
         } else {
             styled.append(NSAttributedString(
@@ -216,275 +225,313 @@ class TabNoteTextView: NSTextView {
                 ]
             ))
         }
-        
-        let tabImage = createTabKeyImage(font: editorFont)
-        let tabAttachment = NSTextAttachment()
-        tabAttachment.image = tabImage
-        let descent = editorFont.descender
-        let yOffset = descent + (editorFont.ascender - descent - tabImage.size.height) / 2
-        tabAttachment.bounds = CGRect(x: 0, y: yOffset, width: tabImage.size.width, height: tabImage.size.height)
-        
-        styled.append(NSAttributedString(string: "  "))
-        styled.append(NSAttributedString(attachment: tabAttachment))
-        
+
+        appendTabKeyBadge(to: styled, font: editorFont)
         ghostLabel.attributedStringValue = styled
         positionGhostLabel()
 
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.2
+            ctx.duration = DesignConstants.ghostFadeInDuration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            self.ghostLabel.animator().alphaValue = 1
+            ghostLabel.animator().alphaValue = 1
         }
     }
 
     func clearSuggestion() {
         if temporaryHighlightRange != nil {
-            self.temporaryHighlightRange = nil
-            self.needsDisplay = true
+            temporaryHighlightRange = nil
+            needsDisplay = true
         }
-        
+
         ghostLabel.isThinking = false
         ghostLabel.alignment = .left
-        
+
         let hadSuggestion = activeSuggestion != nil
         activeSuggestion = nil
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.1
-            self.ghostLabel.animator().alphaValue = 0
-        }
+
+        // Clear content immediately so it doesn't flash during fade-out
         ghostLabel.attributedStringValue = NSAttributedString(string: "")
-        if hadSuggestion {
-            editorViewModel?.didDismissSuggestion()
+
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = DesignConstants.ghostFadeOutDuration
+            ghostLabel.animator().alphaValue = 0
+        }
+
+        if hadSuggestion { editorViewModel?.didDismissSuggestion() }
+    }
+
+    func showThinkingIndicator() {
+        guard activeSuggestion == nil else { return }
+        ghostLabel.isThinking = true
+        ghostLabel.attributedStringValue = NSAttributedString(string: "")
+        positionGhostLabel()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = DesignConstants.ghostFadeInDuration
+            ghostLabel.animator().alphaValue = 1
         }
     }
+
+    func hideThinkingIndicator() {
+        guard activeSuggestion == nil else { return }
+        ghostLabel.isThinking = false
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = DesignConstants.ghostFadeOutDuration
+            ghostLabel.animator().alphaValue = 0
+        }
+    }
+
+    /// Previously unused `message` parameter is now wired to the thinking indicator.
+    func updateStatusMessage(_ message: String) {
+        guard activeSuggestion == nil else { return }
+        if message.isEmpty {
+            hideThinkingIndicator()
+        } else {
+            showThinkingIndicator()
+        }
+    }
+
+    // MARK: - Private: Accept Suggestion
 
     private func acceptCurrentSuggestion() {
         guard let suggestion = activeSuggestion else { return }
-        let text = suggestion.text
-        let range = selectedRange()
 
         isInsertingSuggestion = true
-        
-        self.temporaryHighlightRange = nil
-        self.needsDisplay = true
+        temporaryHighlightRange = nil
+        needsDisplay = true
 
-        if let deleteRange = suggestion.replaceRange {
-            // Safety: validate deleteRange is within textStorage bounds
-            let tsLength = textStorage?.length ?? 0
-            guard deleteRange.location >= 0,
-                  deleteRange.length >= 0,
-                  NSMaxRange(deleteRange) <= tsLength else {
-                // Range is invalid — fall through to plain insertion
-                isInsertingSuggestion = false
-                activeSuggestion = nil
-                ghostLabel.alphaValue = 0
-                ghostLabel.stringValue = ""
-                return
-            }
-
-            if let image = createMathImage(for: text) {
-                let attachment = NSTextAttachment()
-                attachment.image = image
-                // Compute baseline offset: align bottom of image with font descender
-                let editorFont = self.font ?? NSFont.systemFont(ofSize: 18)
-                let descent = editorFont.descender // negative, e.g. -4.2
-                let imgHeight = image.size.height
-                let lineHeight = editorFont.ascender - editorFont.descender
-                let yOffset = descent - (imgHeight - lineHeight) / 2
-                attachment.bounds = CGRect(origin: CGPoint(x: 0, y: yOffset), size: image.size)
-                
-                let attrStr = NSMutableAttributedString(attachment: attachment)
-                attrStr.addAttribute(.font, value: NSFont.systemFont(ofSize: 18), range: NSRange(location: 0, length: 1))
-                // Store original LaTeX source so we can recover it for Markdown export
-                attrStr.addAttribute(.latexSource, value: text, range: NSRange(location: 0, length: attrStr.length))
-                let normalAttrs = [
-                    .font: NSFont.systemFont(ofSize: 18),
-                    .foregroundColor: NSColor.labelColor
-                ] as [NSAttributedString.Key : Any]
-                attrStr.append(NSAttributedString(string: " ", attributes: normalAttrs))
-                
-                textStorage?.replaceCharacters(in: deleteRange, with: attrStr)
-                
-                // Keep cursor where it was, or move it if it was inside/after the replaced text
-                let newCursorLoc: Int
-                if range.location > NSMaxRange(deleteRange) {
-                    newCursorLoc = range.location - deleteRange.length + 2
-                } else if range.location >= deleteRange.location {
-                    newCursorLoc = deleteRange.location + 2
-                } else {
-                    newCursorLoc = range.location
-                }
-                setSelectedRange(NSRange(location: newCursorLoc, length: 0))
-                
-                self.typingAttributes = normalAttrs
-                editorViewModel?.updateFormattingState()
-            } else {
-                let attrText = NSAttributedString(string: text, attributes: typingAttributes)
-                textStorage?.replaceCharacters(in: deleteRange, with: attrText)
-                
-                let newCursorLoc: Int
-                if range.location > NSMaxRange(deleteRange) {
-                    newCursorLoc = range.location - deleteRange.length + (text as NSString).length
-                } else if range.location >= deleteRange.location {
-                    newCursorLoc = deleteRange.location + (text as NSString).length
-                } else {
-                    newCursorLoc = range.location
-                }
-                setSelectedRange(NSRange(location: newCursorLoc, length: 0))
-            }
-            
-            didChangeText()
-
-        } else {
-            if shouldChangeText(in: range, replacementString: text) {
-                let attrText = NSAttributedString(string: text, attributes: typingAttributes)
-                textStorage?.replaceCharacters(in: range, with: attrText)
-                didChangeText()
-
-                let newLoc = range.location + (text as NSString).length
-                setSelectedRange(NSRange(location: newLoc, length: 0))
-            }
+        defer {
+            isInsertingSuggestion = false
+            activeSuggestion = nil
+            ghostLabel.alphaValue = 0
+            ghostLabel.attributedStringValue = NSAttributedString(string: "")
+            // Reset typing attributes to prevent "small text" bug after math insertion
+            resetTypingAttributes()
+            editorViewModel?.didAcceptSuggestion()
         }
 
-        isInsertingSuggestion = false
-        activeSuggestion = nil
-        ghostLabel.alphaValue = 0
-        ghostLabel.stringValue = ""
-        
-        // Always ensure typing attributes are reset to normal size
-        // This prevents the "small text" bug after accepting a math equation
-        let normalFont = NSFont.systemFont(ofSize: 18)
-        self.typingAttributes[.font] = normalFont
-        self.typingAttributes[.foregroundColor] = NSColor.labelColor
-        
-        editorViewModel?.didAcceptSuggestion()
+        if let deleteRange = suggestion.replaceRange {
+            guard isValidRange(deleteRange) else { return }
+            insertSuggestionWithReplacement(text: suggestion.text, replaceRange: deleteRange)
+        } else {
+            insertSuggestionAtCursor(text: suggestion.text)
+        }
+    }
+
+    private func insertSuggestionWithReplacement(text: String, replaceRange: NSRange) {
+        let priorCursor = selectedRange().location
+
+        if let image = createMathImage(for: text) {
+            let attrStr = mathAttachmentString(image: image, source: text)
+            textStorage?.replaceCharacters(in: replaceRange, with: attrStr)
+            let insertedLength = attrStr.length
+            setSelectedRange(NSRange(
+                location: updatedCursorPosition(
+                    prior: priorCursor,
+                    replaceRange: replaceRange,
+                    insertedLength: insertedLength
+                ),
+                length: 0
+            ))
+        } else {
+            let attrStr = NSAttributedString(string: text, attributes: typingAttributes)
+            textStorage?.replaceCharacters(in: replaceRange, with: attrStr)
+            setSelectedRange(NSRange(
+                location: updatedCursorPosition(
+                    prior: priorCursor,
+                    replaceRange: replaceRange,
+                    insertedLength: (text as NSString).length
+                ),
+                length: 0
+            ))
+        }
+
+        didChangeText()
+    }
+
+    private func insertSuggestionAtCursor(text: String) {
+        let range = selectedRange()
+        guard shouldChangeText(in: range, replacementString: text) else { return }
+        let attrStr = NSAttributedString(string: text, attributes: typingAttributes)
+        textStorage?.replaceCharacters(in: range, with: attrStr)
+        didChangeText()
+        let newLoc = range.location + (text as NSString).length
+        setSelectedRange(NSRange(location: newLoc, length: 0))
+    }
+
+    // MARK: - Private: Ghost Label Helpers
+
+    private func appendTabKeyBadge(to string: NSMutableAttributedString, font: NSFont) {
+        let tabImage = createTabKeyImage(font: font)
+        let attachment = NSTextAttachment()
+        attachment.image = tabImage
+        let descent = font.descender
+        let yOffset = descent + (font.ascender - descent - tabImage.size.height) / 2
+        attachment.bounds = CGRect(x: 0, y: yOffset, width: tabImage.size.width, height: tabImage.size.height)
+        string.append(NSAttributedString(string: "  "))
+        string.append(NSAttributedString(attachment: attachment))
     }
 
     private func positionGhostLabel() {
-        guard ghostLabel.attributedStringValue.length > 0,
+        guard ghostLabel.attributedStringValue.length > 0 || ghostLabel.isThinking,
               let lm = layoutManager,
               let tc = textContainer else { return }
 
         let cursor = selectedRange().location
         let textLen = textStorage?.length ?? 0
+        let editorFont = font ?? .systemFont(ofSize: DesignConstants.editorFontSize)
 
-        var cursorX: CGFloat = textContainerInset.width
-        var cursorY: CGFloat = textContainerInset.height
-        var lineHeight: CGFloat = (font?.pointSize ?? 18) * 1.4
-
-        if textLen == 0 {
-            cursorX = textContainerInset.width
-            cursorY = textContainerInset.height
-        } else {
-            let charIndex = min(max(0, cursor), textLen)
-            if charIndex == textLen, textStorage?.string.hasSuffix("\n") == true {
-                let rect = lm.extraLineFragmentRect
-                cursorX = rect.minX + textContainerInset.width
-                cursorY = rect.minY + textContainerInset.height
-                lineHeight = rect.height
-            } else {
-                let indexForRect = (charIndex == textLen) ? (textLen - 1) : charIndex
-                let glyphIdx = lm.glyphIndexForCharacter(at: indexForRect)
-                let lineRect = lm.lineFragmentRect(forGlyphAt: glyphIdx, effectiveRange: nil)
-                let rect = lm.boundingRect(forGlyphRange: NSRange(location: glyphIdx, length: 1), in: tc)
-                
-                cursorY = lineRect.minY + textContainerInset.height
-                lineHeight = lineRect.height
-                
-                if charIndex == textLen {
-                    cursorX = rect.maxX + textContainerInset.width
-                } else {
-                    cursorX = rect.minX + textContainerInset.width
-                }
-            }
-        }
+        let (cursorX, cursorY, lineHeight) = cursorMetrics(
+            cursor: cursor,
+            textLen: textLen,
+            layoutManager: lm,
+            textContainer: tc,
+            fallbackFont: editorFont
+        )
 
         let maxWidth = max(0, bounds.width - cursorX - textContainerInset.width - 8)
-        
-        var labelHeight = lineHeight
-        var labelY = cursorY
-        var labelX = cursorX + 1
-        var labelWidth = maxWidth
-        
+
+        let (labelX, labelY, labelWidth, labelHeight): (CGFloat, CGFloat, CGFloat, CGFloat)
+
         if ghostLabel.isThinking {
-            labelHeight = 22
-            labelY = cursorY + (lineHeight - labelHeight) / 2
+            let h = DesignConstants.ghostThinkingHeight
             labelX = cursorX + 4
-            labelWidth = min(36, maxWidth)
+            labelY = cursorY + (lineHeight - h) / 2
+            labelWidth = min(DesignConstants.ghostThinkingWidth, maxWidth)
+            labelHeight = h
+        } else {
+            labelX = cursorX + 1
+            labelY = cursorY
+            labelWidth = maxWidth
+            labelHeight = lineHeight
         }
-        
-        ghostLabel.frame = NSRect(
-            x: labelX,
-            y: labelY,
-            width: labelWidth,
-            height: labelHeight
-        )
+
+        ghostLabel.frame = NSRect(x: labelX, y: labelY, width: labelWidth, height: labelHeight)
     }
 
-    func updateStatusMessage(_ message: String) {
-        if activeSuggestion == nil {
-            ghostLabel.isThinking = false
-            ghostLabel.alignment = .left
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.1
-                self.ghostLabel.animator().alphaValue = 0
-            }
+    /// Returns (cursorX, cursorY, lineHeight) for the current insertion point.
+    private func cursorMetrics(
+        cursor: Int,
+        textLen: Int,
+        layoutManager lm: NSLayoutManager,
+        textContainer tc: NSTextContainer,
+        fallbackFont: NSFont
+    ) -> (x: CGFloat, y: CGFloat, lineHeight: CGFloat) {
+        let insetX = textContainerInset.width
+        let insetY = textContainerInset.height
+        let defaultLineHeight = fallbackFont.pointSize * 1.4
+
+        guard textLen > 0 else {
+            return (insetX, insetY, defaultLineHeight)
         }
+
+        // Cursor is past the last character and that last char is a newline
+        if cursor == textLen, textStorage?.string.hasSuffix("\n") == true {
+            let rect = lm.extraLineFragmentRect
+            return (rect.minX + insetX, rect.minY + insetY, rect.height)
+        }
+
+        let clampedIndex = min(max(0, cursor), textLen)
+        let rectIndex = clampedIndex == textLen ? textLen - 1 : clampedIndex
+        let glyphIdx = lm.glyphIndexForCharacter(at: rectIndex)
+        let lineRect = lm.lineFragmentRect(forGlyphAt: glyphIdx, effectiveRange: nil)
+        let glyphRect = lm.boundingRect(forGlyphRange: NSRange(location: glyphIdx, length: 1), in: tc)
+
+        let x = clampedIndex == textLen
+            ? glyphRect.maxX + insetX
+            : glyphRect.minX + insetX
+        return (x, lineRect.minY + insetY, lineRect.height)
     }
+
+    // MARK: - Private: Math Attachment Builder
+
+    private func mathAttachmentString(image: NSImage, source: String) -> NSMutableAttributedString {
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        let editorFont = font ?? NSFont.systemFont(ofSize: DesignConstants.editorFontSize)
+        let descent = editorFont.descender
+        let lineHeight = editorFont.ascender - editorFont.descender
+        let yOffset = descent - (image.size.height - lineHeight) / 2
+        attachment.bounds = CGRect(origin: CGPoint(x: 0, y: yOffset), size: image.size)
+
+        let attrStr = NSMutableAttributedString(attachment: attachment)
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: DesignConstants.editorFontSize),
+            .foregroundColor: NSColor.labelColor
+        ]
+        attrStr.addAttributes(normalAttrs, range: NSRange(location: 0, length: 1))
+        attrStr.addAttribute(.latexSource, value: source, range: NSRange(location: 0, length: attrStr.length))
+        attrStr.append(NSAttributedString(string: " ", attributes: normalAttrs))
+        return attrStr
+    }
+
+    // MARK: - Private: Cursor Utilities
+
+    /// Computes where the cursor should land after replacing `replaceRange` with `insertedLength` chars.
+    private func updatedCursorPosition(prior: Int, replaceRange: NSRange, insertedLength: Int) -> Int {
+        if prior > NSMaxRange(replaceRange) {
+            return prior - replaceRange.length + insertedLength
+        } else if prior >= replaceRange.location {
+            return replaceRange.location + insertedLength
+        }
+        return prior
+    }
+
+    private func isValidRange(_ range: NSRange) -> Bool {
+        let tsLength = textStorage?.length ?? 0
+        return range.location >= 0
+            && range.length >= 0
+            && NSMaxRange(range) <= tsLength
+    }
+
+    private func resetTypingAttributes() {
+        typingAttributes = [
+            .font: NSFont.systemFont(ofSize: DesignConstants.editorFontSize),
+            .foregroundColor: NSColor.labelColor
+        ]
+        editorViewModel?.updateFormattingState()
+    }
+
+    // MARK: - Custom Drawing
 
     override func drawBackground(in rect: NSRect) {
         super.drawBackground(in: rect)
-        
-        guard let lm = layoutManager, let tc = textContainer else { return }
+
+        guard let hlRange = temporaryHighlightRange, hlRange.length > 0,
+              let lm = layoutManager, let tc = textContainer else { return }
+
         let origin = textContainerOrigin
-        
-        if let hlRange = temporaryHighlightRange, hlRange.length > 0 {
-            let glyphRange = lm.glyphRange(forCharacterRange: hlRange, actualCharacterRange: nil)
-            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, tc, glyphRangeInLine, _ in
-                let intersection = NSIntersectionRange(glyphRange, glyphRangeInLine)
-                if intersection.length > 0 {
-                    let rect = lm.boundingRect(forGlyphRange: intersection, in: tc)
-                    let drawRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                    
-                    NSGraphicsContext.saveGraphicsState()
-                    
-                    let paddedRect = drawRect.insetBy(dx: -4, dy: -2)
-                    let path = NSBezierPath(roundedRect: paddedRect, xRadius: 6, yRadius: 6)
-                    
-                    let isDark = self.effectiveAppearance.name == .darkAqua || self.effectiveAppearance.name == .vibrantDark
-                    
-                    NSColor.labelColor.withAlphaComponent(isDark ? 0.2 : 0.08).setFill()
-                    path.fill()
-                    
-                    NSColor.labelColor.withAlphaComponent(isDark ? 0.3 : 0.15).setStroke()
-                    path.lineWidth = 1.0
-                    path.stroke()
-                    
-                    NSGraphicsContext.restoreGraphicsState()
-                }
-            }
+        let glyphRange = lm.glyphRange(forCharacterRange: hlRange, actualCharacterRange: nil)
+        let isDark = effectiveAppearance.name == .darkAqua || effectiveAppearance.name == .vibrantDark
+
+        lm.enumerateLineFragments(forGlyphRange: glyphRange) { [weak self] _, _, lineTC, lineGlyphRange, _ in
+            guard self != nil else { return }
+            let intersection = NSIntersectionRange(glyphRange, lineGlyphRange)
+            guard intersection.length > 0 else { return }
+
+            let rect = lm.boundingRect(forGlyphRange: intersection, in: lineTC)
+            let drawRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+            let paddedRect = drawRect.insetBy(
+                dx: -DesignConstants.highlightPaddingH,
+                dy: -DesignConstants.highlightPaddingV
+            )
+            let path = NSBezierPath(roundedRect: paddedRect,
+                                    xRadius: DesignConstants.highlightCornerRadius,
+                                    yRadius: DesignConstants.highlightCornerRadius)
+
+            NSGraphicsContext.saveGraphicsState()
+            NSColor.labelColor.withAlphaComponent(isDark ? 0.2 : 0.08).setFill()
+            path.fill()
+            NSColor.labelColor.withAlphaComponent(isDark ? 0.3 : 0.15).setStroke()
+            path.lineWidth = DesignConstants.highlightBorderWidth
+            path.stroke()
+            NSGraphicsContext.restoreGraphicsState()
         }
     }
 
-    // MARK: Formatting
+    // MARK: - Formatting
 
-    func toggleBold() {
-        let range = selectedRange()
-        if range.length > 0 {
-            applyFontTrait(.bold, range: range)
-        } else {
-            toggleTypingFontTrait(.bold)
-        }
-    }
-
-    func toggleItalic() {
-        let range = selectedRange()
-        if range.length > 0 {
-            applyFontTrait(.italic, range: range)
-        } else {
-            toggleTypingFontTrait(.italic)
-        }
-    }
+    func toggleBold() { toggleFontTrait(.bold) }
+    func toggleItalic() { toggleFontTrait(.italic) }
 
     func toggleUnderline() {
         let range = selectedRange()
@@ -504,12 +551,18 @@ class TabNoteTextView: NSTextView {
         }
     }
 
-    // MARK: Private Formatting Helpers
+    // MARK: - Private Formatting Helpers
 
-    private func applyFontTrait(
-        _ trait: NSFontDescriptor.SymbolicTraits,
-        range: NSRange
-    ) {
+    private func toggleFontTrait(_ trait: NSFontDescriptor.SymbolicTraits) {
+        let range = selectedRange()
+        if range.length > 0 {
+            applyFontTrait(trait, range: range)
+        } else {
+            toggleTypingFontTrait(trait)
+        }
+    }
+
+    private func applyFontTrait(_ trait: NSFontDescriptor.SymbolicTraits, range: NSRange) {
         guard let ts = textStorage else { return }
         let fm = NSFontManager.shared
         let mask: NSFontTraitMask = trait == .bold ? .boldFontMask : .italicFontMask
@@ -517,12 +570,9 @@ class TabNoteTextView: NSTextView {
         ts.beginEditing()
         ts.enumerateAttribute(.font, in: range, options: []) { value, attrRange, _ in
             guard let font = value as? NSFont else { return }
-            let newFont: NSFont
-            if font.fontDescriptor.symbolicTraits.contains(trait) {
-                newFont = fm.convert(font, toNotHaveTrait: mask)
-            } else {
-                newFont = fm.convert(font, toHaveTrait: mask)
-            }
+            let newFont = font.fontDescriptor.symbolicTraits.contains(trait)
+                ? fm.convert(font, toNotHaveTrait: mask)
+                : fm.convert(font, toHaveTrait: mask)
             ts.addAttribute(.font, value: newFont, range: attrRange)
         }
         ts.endEditing()
@@ -533,28 +583,23 @@ class TabNoteTextView: NSTextView {
         guard let font = attrs[.font] as? NSFont else { return }
         let fm = NSFontManager.shared
         let mask: NSFontTraitMask = trait == .bold ? .boldFontMask : .italicFontMask
-
-        if font.fontDescriptor.symbolicTraits.contains(trait) {
-            attrs[.font] = fm.convert(font, toNotHaveTrait: mask)
-        } else {
-            attrs[.font] = fm.convert(font, toHaveTrait: mask)
-        }
+        attrs[.font] = font.fontDescriptor.symbolicTraits.contains(trait)
+            ? fm.convert(font, toNotHaveTrait: mask)
+            : fm.convert(font, toHaveTrait: mask)
         typingAttributes = attrs
     }
 
-    private func toggleAttribute(
-        _ key: NSAttributedString.Key,
-        range: NSRange
-    ) {
+    /// Toggles a style attribute (underline or strikethrough) over a range.
+    private func toggleAttribute(_ key: NSAttributedString.Key, range: NSRange) {
         guard let ts = textStorage else { return }
         ts.beginEditing()
 
-        var hasAttr = false
+        var isActive = false
         ts.enumerateAttribute(key, in: range, options: []) { value, _, _ in
-            if let style = value as? Int, style != 0 { hasAttr = true }
+            if let style = value as? Int, style != 0 { isActive = true }
         }
 
-        if hasAttr {
+        if isActive {
             ts.removeAttribute(key, range: range)
         } else {
             ts.addAttribute(key, value: NSUnderlineStyle.single.rawValue, range: range)
