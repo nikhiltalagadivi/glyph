@@ -5,7 +5,7 @@
 
 import AppKit
 import SwiftUI
-import LaTeXSwiftUI
+import SwiftMath
 import UniformTypeIdentifiers
 
 // MARK: - Design Constants

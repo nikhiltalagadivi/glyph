@@ -11,13 +11,13 @@ let package = Package(
         .executable(name: "Glyph", targets: ["Glyph"])
     ],
     dependencies: [
-        .package(url: "https://github.com/colinc86/LaTeXSwiftUI.git", from: "1.1.0")
+        .package(url: "https://github.com/mgriebling/SwiftMath.git", from: "1.7.0")
     ],
     targets: [
         .executableTarget(
             name: "Glyph",
             dependencies: [
-                .product(name: "LaTeXSwiftUI", package: "LaTeXSwiftUI")
+                .product(name: "SwiftMath", package: "SwiftMath")
             ],
             path: "Sources/Glyph"
         )

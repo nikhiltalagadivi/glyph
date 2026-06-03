@@ -5,7 +5,7 @@
 
 import AppKit
 import SwiftUI
-import LaTeXSwiftUI
+import SwiftMath
 import UniformTypeIdentifiers
 
 // Custom key to store LaTeX source on text attachments for Markdown export

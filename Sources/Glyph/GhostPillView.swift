@@ -1,9 +1,46 @@
 import SwiftUI
-import LaTeXSwiftUI
+import SwiftMath
 
 class GhostPillState: ObservableObject {
     @Published var suggestionText: String = ""
     @Published var isThinking: Bool = false
+}
+
+/// Wraps SwiftMath's MTMathUILabel in SwiftUI for live LaTeX preview in the ghost pill
+struct MathView: NSViewRepresentable {
+    let latex: String
+    let fontSize: CGFloat
+    
+    init(_ latex: String, fontSize: CGFloat = 16) {
+        self.latex = latex
+        self.fontSize = fontSize
+    }
+    
+    func makeNSView(context: Context) -> MTMathUILabel {
+        let label = MTMathUILabel()
+        label.fontSize = fontSize
+        label.textAlignment = .left
+        label.labelMode = .text
+        return label
+    }
+    
+    func updateNSView(_ label: MTMathUILabel, context: Context) {
+        // Strip delimiters for SwiftMath
+        var raw = latex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.hasPrefix("\\(") && raw.hasSuffix("\\)") {
+            raw = String(raw.dropFirst(2).dropLast(2))
+        } else if raw.hasPrefix("\\[") && raw.hasSuffix("\\]") {
+            raw = String(raw.dropFirst(2).dropLast(2))
+        } else if raw.hasPrefix("$$") && raw.hasSuffix("$$") && raw.count > 4 {
+            raw = String(raw.dropFirst(2).dropLast(2))
+        } else if raw.hasPrefix("$") && raw.hasSuffix("$") && raw.count > 2 {
+            raw = String(raw.dropFirst().dropLast())
+        }
+        label.latex = raw.trimmingCharacters(in: .whitespaces)
+        label.fontSize = fontSize
+        label.textColor = .labelColor
+        label.invalidateIntrinsicContentSize()
+    }
 }
 
 struct GhostPillView: View {
@@ -15,8 +52,9 @@ struct GhostPillView: View {
                 HStack(spacing: 6) {
                     Text("⟲")
                         .foregroundColor(.secondary)
-                    LaTeX(state.suggestionText)
-                        .foregroundColor(.primary)
+                    MathView(state.suggestionText, fontSize: 16)
+                        .frame(height: 22)
+                        .fixedSize()
                     
                     HStack(spacing: 2) {
                         Image(systemName: "arrow.right.to.line")

@@ -4,110 +4,108 @@
 // ============================================================
 
 import AppKit
-import SwiftUI
-import LaTeXSwiftUI
-import UniformTypeIdentifiers
+import SwiftMath
 
-// MARK: - Math Image Renderer
+// MARK: - Math Image Renderer (SwiftMath — native Core Graphics)
 
 @MainActor
 func createMathImage(for markdown: String) -> NSImage? {
-    // Normalise delimiter styles to \(...\) / \[...\]
-    let processed: String
-    if markdown.hasPrefix("$$"), markdown.hasSuffix("$$") {
-        processed = "\\[" + markdown.dropFirst(2).dropLast(2) + "\\]"
-    } else if markdown.hasPrefix("$"), markdown.hasSuffix("$") {
-        processed = "\\(" + markdown.dropFirst().dropLast() + "\\)"
-    } else if !markdown.contains("\\(") && !markdown.contains("\\[") && !markdown.contains("$") {
-        // Raw LaTeX without delimiters — wrap it
-        processed = "\\( " + markdown + " \\)"
-    } else {
-        // Already in \(...\) or \[...\] form — pass through
-        processed = markdown
-    }
-
-    // Try rendering with LaTeXSwiftUI
-    // Use a hosting view approach which is more reliable than ImageRenderer for complex LaTeX
-    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+    // Strip LaTeX delimiters to get raw math content
+    let rawLatex = stripDelimiters(markdown)
+    guard !rawLatex.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
     
-    // Approach 1: NSHostingView-based bitmap (more reliable than ImageRenderer)
-    let view = LaTeX(processed)
-        .font(.system(size: 20))
-        .foregroundColor(.black)
-        .fixedSize()
-
-    let hostingView = NSHostingView(rootView: view)
-    hostingView.frame.size = hostingView.fittingSize
+    // Use SwiftMath's MTMathUILabel to render natively via Core Graphics
+    let label = MTMathUILabel()
+    label.latex = rawLatex
+    label.fontSize = 20
+    label.textColor = .labelColor
+    label.textAlignment = .left
+    label.labelMode = .text
     
-    // Give it a moment to layout — complex LaTeX needs this
-    hostingView.layoutSubtreeIfNeeded()
-    
-    let size = hostingView.fittingSize
-    guard size.width > 0, size.height > 0 else {
-        print("createMathImage: fittingSize is zero for '\(markdown)'")
-        // Fallback to ImageRenderer
-        return createMathImageFallback(processed: processed, scale: scale)
-    }
-    
-    hostingView.frame = NSRect(origin: .zero, size: size)
-    
-    guard let bitmapRep = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else {
-        print("createMathImage: bitmapRep is nil for '\(markdown)'")
-        return createMathImageFallback(processed: processed, scale: scale)
-    }
-    
-    hostingView.cacheDisplay(in: hostingView.bounds, to: bitmapRep)
-    
-    let image = NSImage(size: size)
-    image.addRepresentation(bitmapRep)
-    image.isTemplate = true
-    
-    // Verify the image isn't blank (all transparent)
-    if isImageBlank(bitmapRep) {
-        print("createMathImage: bitmap is blank for '\(markdown)', trying fallback")
-        return createMathImageFallback(processed: processed, scale: scale)
-    }
-    
-    print("createMathImage for: '\(markdown)' -> img: \(image.size)")
-    return image
-}
-
-@MainActor
-private func createMathImageFallback(processed: String, scale: CGFloat) -> NSImage? {
-    let view = LaTeX(processed)
-        .font(.system(size: 20))
-        .foregroundColor(.black)
-        .fixedSize()
-
-    let renderer = ImageRenderer(content: view)
-    renderer.scale = scale
-    
-    guard let img = renderer.nsImage else {
-        print("createMathImage fallback: ImageRenderer also returned nil")
+    // Force layout to compute intrinsic size
+    let intrinsicSize = label.intrinsicContentSize
+    guard intrinsicSize.width > 0, intrinsicSize.height > 0 else {
+        print("createMathImage: intrinsicContentSize is zero for '\(rawLatex)'")
         return nil
     }
     
-    img.isTemplate = true
-    print("createMathImage fallback succeeded: \(img.size)")
-    return img
+    // Add a small amount of padding
+    let padding: CGFloat = 2
+    let renderSize = NSSize(
+        width: intrinsicSize.width + padding * 2,
+        height: intrinsicSize.height + padding * 2
+    )
+    
+    label.frame = NSRect(origin: NSPoint(x: padding, y: padding), size: intrinsicSize)
+    
+    // Render to a high-DPI NSImage
+    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+    let pixelSize = NSSize(width: renderSize.width * scale, height: renderSize.height * scale)
+    
+    guard let bitmapRep = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: Int(pixelSize.width),
+        pixelsHigh: Int(pixelSize.height),
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    ) else {
+        print("createMathImage: failed to create bitmap rep")
+        return nil
+    }
+    
+    // Draw into the bitmap at high resolution
+    NSGraphicsContext.saveGraphicsState()
+    guard let context = NSGraphicsContext(bitmapImageRep: bitmapRep) else {
+        NSGraphicsContext.restoreGraphicsState()
+        return nil
+    }
+    NSGraphicsContext.current = context
+    
+    let cgContext = context.cgContext
+    cgContext.scaleBy(x: scale, y: scale)
+    
+    // Clear background (transparent)
+    cgContext.clear(CGRect(origin: .zero, size: renderSize))
+    
+    // Draw the math label
+    label.draw(CGRect(origin: .zero, size: renderSize))
+    
+    NSGraphicsContext.restoreGraphicsState()
+    
+    // Build the final NSImage at logical size
+    let image = NSImage(size: renderSize)
+    image.addRepresentation(bitmapRep)
+    image.isTemplate = true
+    
+    print("createMathImage for: '\(rawLatex)' -> size: \(renderSize)")
+    return image
 }
 
-private func isImageBlank(_ rep: NSBitmapImageRep) -> Bool {
-    guard let data = rep.bitmapData else { return true }
-    let bytesPerRow = rep.bytesPerRow
-    let height = rep.pixelsHigh
-    let width = rep.pixelsWide
-    let samplesPerPixel = rep.samplesPerPixel
+/// Strips `\( ... \)`, `\[ ... \]`, `$ ... $`, `$$ ... $$` delimiters from LaTeX
+private func stripDelimiters(_ input: String) -> String {
+    var s = input.trimmingCharacters(in: .whitespacesAndNewlines)
     
-    // Check if there's any non-zero alpha pixel
-    guard samplesPerPixel >= 4 else { return false } // Can't check alpha, assume not blank
-    
-    for y in 0..<height {
-        for x in 0..<width {
-            let offset = y * bytesPerRow + x * samplesPerPixel
-            let alpha = data[offset + 3]
-            if alpha > 10 { return false } // Found a non-transparent pixel
-        }
+    // $$ ... $$
+    if s.hasPrefix("$$") && s.hasSuffix("$$") && s.count > 4 {
+        s = String(s.dropFirst(2).dropLast(2))
     }
-    return true
+    // \[ ... \]
+    else if s.hasPrefix("\\[") && s.hasSuffix("\\]") {
+        s = String(s.dropFirst(2).dropLast(2))
+    }
+    // \( ... \)
+    else if s.hasPrefix("\\(") && s.hasSuffix("\\)") {
+        s = String(s.dropFirst(2).dropLast(2))
+    }
+    // $ ... $
+    else if s.hasPrefix("$") && s.hasSuffix("$") && s.count > 2 {
+        s = String(s.dropFirst().dropLast())
+    }
+    
+    return s.trimmingCharacters(in: .whitespaces)
 }
