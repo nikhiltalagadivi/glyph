@@ -109,15 +109,15 @@ Output ONLY the raw LaTeX expression.
 
 Context: We have y = x^2
 Instruction: differentiate y
-LaTeX: \\frac{dy}{dx} = 2x
+LaTeX: \\frac{dy}{dx} = \\frac{d}{dx}(x^2)
 
 Context: We define the function \\( f(x) = x^2 + 5x \\).
 Instruction: differentiate f(x)
-LaTeX: f'(x) = 2x + 5
+LaTeX: f'(x) = \\frac{d}{dx}(x^2 + 5x)
 
 Context: Let f(x) = x^3.
 Instruction: evaluate f'(2)
-LaTeX: f'(2) = 12
+LaTeX: f'(2) = \\left. \\frac{d}{dx}(x^3) \\right|_{x=2}
 
 Context: Given E = mc^2
 Instruction: solve for m
@@ -125,7 +125,7 @@ LaTeX: m = \\frac{E}{c^2}
 
 Context: Let \\( y = x^2 \\).
 Instruction: substitute x = 3 to get y
-LaTeX: y = 9
+LaTeX: y = 3^2
 
 Context: The area of a circle is
 Instruction: pi r squared
@@ -233,7 +233,7 @@ LaTeX: \\pi r^2
 
 Context: Let f(x) = x^3. The derivative is f'(x) = 
 Phrase: f'(x) = 
-LaTeX: f'(x) = 3x^2
+LaTeX: f'(x) = \\frac{d}{dx}(x^3)
 
 Context: We have y = x^2. Substituting y = 4 yields 4 = 
 Phrase: Substituting y = 4 yields 4 = 
@@ -241,7 +241,7 @@ LaTeX: 4 = x^2
 
 Context: Let \\( y = x^2 \\). If we substitute x = 3, then we obtain y = 
 Phrase: substitute x = 3, then we obtain y = 
-LaTeX: y = 9
+LaTeX: y = 3^2
 
 Context: Let delta x be a small change, then Delta y is 
 Phrase: delta x be a small change, then Delta y is 
@@ -253,11 +253,11 @@ LaTeX: \\lim_{\\delta x \\to 0} \\frac{\\Delta y}{\\Delta x}
 
 Context: We have y = x^2. Differentiating with respect to x gives dy/dx = 
 Phrase: Differentiating with respect to x gives dy/dx = 
-LaTeX: \\frac{dy}{dx} = 2x
+LaTeX: \\frac{dy}{dx} = \\frac{d}{dx}(x^2)
 
 Context: We define the function \\( f(x) = x^2 + 5x \\). Differentiating it gives f'(x) = 
 Phrase: Differentiating it gives f'(x) = 
-LaTeX: f'(x) = 2x + 5
+LaTeX: f'(x) = \\frac{d}{dx}(x^2 + 5x)
 
 Context: The sum from n equals 1 to infinity of 1 over n squared equals pi squared over 6
 Phrase: the sum from n equals 1 to infinity of 1 over n squared equals pi squared over 6
