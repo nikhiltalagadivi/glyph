@@ -37,6 +37,11 @@ if [ -d "$BUILD_DIR/SwiftMath_SwiftMath.bundle" ]; then
   ditto --noextattr --noqtn "$BUILD_DIR/SwiftMath_SwiftMath.bundle" "$APP_DIR/Contents/Resources/SwiftMath_SwiftMath.bundle"
 fi
 
+# Copy App Icon
+if [ -f "$ROOT_DIR/Resources/Glyph.icns" ]; then
+  cp "$ROOT_DIR/Resources/Glyph.icns" "$APP_DIR/Contents/Resources/Glyph.icns"
+fi
+
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -62,6 +67,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
   <true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key>
   <true/>
+  <key>CFBundleIconFile</key>
+  <string>Glyph.icns</string>
 </dict>
 </plist>
 PLIST
