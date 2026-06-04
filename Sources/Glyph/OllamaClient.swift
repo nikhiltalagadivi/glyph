@@ -221,6 +221,10 @@ Context: For a sphere, the volume is
 Phrase: the volume is 
 LaTeX: V = \\frac{4}{3} \\pi r^3
 
+Context: The sum from n equals 1 to infinity of 1 over n squared equals pi squared over 6
+Phrase: sum from n equals 1 to infinity of 1 over n squared equals pi squared over 6
+LaTeX: \\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}
+
 Context: \(trimmedContext)
 Phrase: \(mathPhrase)
 LaTeX:
@@ -235,7 +239,7 @@ LaTeX:
             options: OllamaOptions(
                 temperature: 0.0,
                 topP: 0.9,
-                numPredict: 60,
+                numPredict: 80,
                 numCtx: 1024,
                 stop: ["\n"]
             )
