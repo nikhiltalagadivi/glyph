@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 @main
 struct GlyphApp: App {
     init() {
+        Bundle.swizzle()
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }

@@ -31,9 +31,10 @@ cp "$BUILD_DIR/Glyph" "$APP_DIR/Contents/MacOS/Glyph"
 cp "$OLLAMA_BIN" "$APP_DIR/Contents/Resources/Ollama/ollama"
 ditto --noextattr --noqtn "$MODEL_DIR" "$APP_DIR/Contents/Resources/OllamaModels"
 
-# Copy SwiftMath resource bundle (math fonts) alongside the executable
+# Copy SwiftMath resource bundle (math fonts) to Contents/Resources
+# (Swizzling logic in Extensions.swift redirects Bundle.module lookup here at runtime)
 if [ -d "$BUILD_DIR/SwiftMath_SwiftMath.bundle" ]; then
-  ditto --noextattr --noqtn "$BUILD_DIR/SwiftMath_SwiftMath.bundle" "$APP_DIR/Contents/MacOS/SwiftMath_SwiftMath.bundle"
+  ditto --noextattr --noqtn "$BUILD_DIR/SwiftMath_SwiftMath.bundle" "$APP_DIR/Contents/Resources/SwiftMath_SwiftMath.bundle"
 fi
 
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
