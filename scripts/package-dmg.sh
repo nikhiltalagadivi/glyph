@@ -31,6 +31,11 @@ cp "$BUILD_DIR/Glyph" "$APP_DIR/Contents/MacOS/Glyph"
 cp "$OLLAMA_BIN" "$APP_DIR/Contents/Resources/Ollama/ollama"
 ditto --noextattr --noqtn "$MODEL_DIR" "$APP_DIR/Contents/Resources/OllamaModels"
 
+# Copy SwiftMath resource bundle (math fonts) alongside the executable
+if [ -d "$BUILD_DIR/SwiftMath_SwiftMath.bundle" ]; then
+  ditto --noextattr --noqtn "$BUILD_DIR/SwiftMath_SwiftMath.bundle" "$APP_DIR/Contents/MacOS/SwiftMath_SwiftMath.bundle"
+fi
+
 cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -60,6 +65,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
+chmod -R u+w "$APP_DIR"
 xattr -cr "$APP_DIR"
 codesign --force --deep --sign - "$APP_DIR"
 
