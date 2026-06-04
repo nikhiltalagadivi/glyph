@@ -98,16 +98,46 @@ actor OllamaSuggestionEngine {
         let rawMathText = (prefix as NSString).substring(with: NSRange(location: replaceRange.location + 1, length: replaceRange.length - 1))
         let mathText = rawMathText.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        guard !mathText.isEmpty else { return nil }
+        // Extract context before the slash command
+        let contextBeforeSlash = nsText.substring(to: replaceRange.location)
+        let trimmedContext = String(contextBeforeSlash.suffix(300))
 
         let prompt = """
-Translate math to LaTeX. ONLY raw LaTeX.
-Input: pi r squared
-Output: \\pi r^2
-Input: integral from 0 to infinity of x dx
-Output: \\int_{0}^{\\infty} x \\, dx
-Input: \(mathText)
-Output:
+You are a mathematical assistant that translates instructions and equations into LaTeX based on the surrounding context.
+Context is the text typed so far. Instruction is the command to execute.
+Output ONLY the raw LaTeX expression.
+
+Context: We have y = x^2
+Instruction: differentiate y
+LaTeX: \\frac{dy}{dx} = 2x
+
+Context: We define the function \\( f(x) = x^2 + 5x \\).
+Instruction: differentiate f(x)
+LaTeX: f'(x) = 2x + 5
+
+Context: Let f(x) = x^3.
+Instruction: evaluate f'(2)
+LaTeX: f'(2) = 12
+
+Context: Given E = mc^2
+Instruction: solve for m
+LaTeX: m = \\frac{E}{c^2}
+
+Context: Let \\( y = x^2 \\).
+Instruction: substitute x = 3 to get y
+LaTeX: y = 9
+
+Context: The area of a circle is
+Instruction: pi r squared
+LaTeX: \\pi r^2
+
+Context: We compute
+Instruction: the integral of x dx
+LaTeX: \\int x \\, dx
+
+Context: \(trimmedContext)
+Instruction: \(mathText)
+LaTeX:
 """
 
         let body = OllamaRequest(
@@ -119,7 +149,7 @@ Output:
             options: OllamaOptions(
                 temperature: 0.0,
                 topP: 0.9,
-                numPredict: 40,
+                numPredict: 80,
                 numCtx: 1024,
                 stop: ["\n"]
             )
@@ -205,25 +235,37 @@ Context: Let f(x) = x^3. The derivative is f'(x) =
 Phrase: f'(x) = 
 LaTeX: f'(x) = 3x^2
 
-Context: We have y = x^2
-Phrase: y = x^2
-LaTeX: y = x^2
+Context: We have y = x^2. Substituting y = 4 yields 4 = 
+Phrase: Substituting y = 4 yields 4 = 
+LaTeX: 4 = x^2
 
-Context: The equation of a line is y = 
-Phrase: y = 
-LaTeX: y = mx + c
+Context: Let \\( y = x^2 \\). If we substitute x = 3, then we obtain y = 
+Phrase: substitute x = 3, then we obtain y = 
+LaTeX: y = 9
 
-Context: The integral of 2x dx is 
-Phrase: 2x dx is 
-LaTeX: \\int 2x \\, dx = x^2 + C
+Context: Let delta x be a small change, then Delta y is 
+Phrase: delta x be a small change, then Delta y is 
+LaTeX: \\delta x \\text{ be a small change, then } \\Delta y \\text{ is}
 
-Context: For a sphere, the volume is 
-Phrase: the volume is 
-LaTeX: V = \\frac{4}{3} \\pi r^3
+Context: The limit as delta x approaches 0 of Delta y over Delta x is 
+Phrase: limit as delta x approaches 0 of Delta y over Delta x is 
+LaTeX: \\lim_{\\delta x \\to 0} \\frac{\\Delta y}{\\Delta x}
+
+Context: We have y = x^2. Differentiating with respect to x gives dy/dx = 
+Phrase: Differentiating with respect to x gives dy/dx = 
+LaTeX: \\frac{dy}{dx} = 2x
+
+Context: We define the function \\( f(x) = x^2 + 5x \\). Differentiating it gives f'(x) = 
+Phrase: Differentiating it gives f'(x) = 
+LaTeX: f'(x) = 2x + 5
 
 Context: The sum from n equals 1 to infinity of 1 over n squared equals pi squared over 6
-Phrase: sum from n equals 1 to infinity of 1 over n squared equals pi squared over 6
+Phrase: the sum from n equals 1 to infinity of 1 over n squared equals pi squared over 6
 LaTeX: \\sum_{n=1}^{\\infty} \\frac{1}{n^2} = \\frac{\\pi^2}{6}
+
+Context: We compute the integral of sin x dx
+Phrase: the integral of sin x dx
+LaTeX: \\int \\sin x \\, dx
 
 Context: \(trimmedContext)
 Phrase: \(mathPhrase)

@@ -50,7 +50,9 @@ struct MathScopeScanner {
     ]
     
     static let allowedStopWordsInMath: Set<String> = [
-        "from", "to", "over", "of", "and", "in", "by", "for", "with", "evaluate", "evaluated", "as", "at", "on"
+        "from", "to", "over", "of", "and", "in", "by", "for", "with", "evaluate", "evaluated", "as", "at", "on",
+        "gives", "yields", "get", "we", "obtain", "obtaining", "substituting", "substitution", "solving", "solve",
+        "then", "therefore", "thus", "hence"
     ]
     
     struct Token {
@@ -117,7 +119,15 @@ struct MathScopeScanner {
             }
         }
         
-        let phraseTokens = words[finalStartIndex...]
+        var adjustedStartIndex = finalStartIndex
+        if adjustedStartIndex > 0 {
+            let prevWord = words[adjustedStartIndex - 1].text.lowercased()
+            if prevWord == "the" || prevWord == "a" || prevWord == "an" {
+                adjustedStartIndex -= 1
+            }
+        }
+        
+        let phraseTokens = words[adjustedStartIndex...]
         guard !phraseTokens.isEmpty else { return nil }
         
         let startToken = phraseTokens.first!
