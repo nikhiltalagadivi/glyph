@@ -11,6 +11,8 @@ import UniformTypeIdentifiers
 // Custom key to store LaTeX source on text attachments for Markdown export
 
 struct EditorScreen: View {
+    @AppStorage("hasShownWelcome") private var hasShownWelcome = false
+    @State private var showWelcome = false
     @State private var viewModel = EditorViewModel()
     @State private var isMenuExpanded = false
 
@@ -117,9 +119,128 @@ struct EditorScreen: View {
             .padding(.horizontal, 16)
             .ignoresSafeArea(.container, edges: .top)
             .animation(.smooth(duration: 0.25), value: viewModel.statusMessage.isEmpty || viewModel.statusMessage == "thinking…" || viewModel.statusMessage == "⇥ Tab")
+            
+            if showWelcome {
+                ZStack {
+                    Color.black
+                        .opacity(0.45)
+                        .contentShape(Rectangle())
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                    
+                    VStack(spacing: 24) {
+                        if let appIcon = NSImage(named: "NSApplicationIcon") {
+                            Image(nsImage: appIcon)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 80, height: 80)
+                                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 6)
+                        } else {
+                            Image(systemName: "pencil.and.outline")
+                                .font(.system(size: 64))
+                                .foregroundStyle(.blue)
+                        }
+                        
+                        VStack(spacing: 8) {
+                            Text("Welcome to Glyph")
+                                .font(.system(size: 28, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+                            
+                            Text("A minimalist writing environment powered by local intelligence.")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 18) {
+                            FeatureRow(
+                                icon: "keyboard",
+                                title: "Freewrite & Complete",
+                                description: "Write naturally. The local AI engine silently predicts the continuation of your thoughts. Press Tab ⇥ to accept suggestions instantly."
+                            )
+                            
+                            FeatureRow(
+                                icon: "terminal",
+                                title: "Intentional AI Prompts",
+                                description: "Start any sentence or line with a slash (/) to command the AI. Use it to formulate LaTeX equations, render mathematics, or translate descriptions."
+                            )
+                        }
+                        .padding(.horizontal, 8)
+                        
+                        Button(action: {
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                                showWelcome = false
+                                hasShownWelcome = true
+                            }
+                        }) {
+                            Text("Start Writing")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.vertical, 10)
+                                .frame(maxWidth: .infinity)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color.blue, Color.purple],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    in: RoundedRectangle(cornerRadius: 12)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .shadow(color: Color.blue.opacity(0.3), radius: 8, y: 3)
+                    }
+                    .padding(32)
+                    .frame(width: 450)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.35), radius: 30, x: 0, y: 15)
+                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
+                .zIndex(100)
+            }
         }
         .task {
+            if !hasShownWelcome {
+                showWelcome = true
+            }
             await viewModel.startupAI()
+        }
+    }
+}
+
+// MARK: - Welcome View Row Component
+struct FeatureRow: View {
+    let icon: String
+    let title: String
+    let description: String
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.blue)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.blue.opacity(0.12))
+                )
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                
+                Text(description)
+                    .font(.system(size: 12, weight: .regular, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
