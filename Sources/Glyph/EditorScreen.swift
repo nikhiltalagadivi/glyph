@@ -123,7 +123,7 @@ struct EditorScreen: View {
             if showWelcome {
                 ZStack {
                     Color.black
-                        .opacity(0.45)
+                        .opacity(0.4)
                         .contentShape(Rectangle())
                         .ignoresSafeArea()
                         .transition(.opacity)
@@ -134,20 +134,20 @@ struct EditorScreen: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 80, height: 80)
-                                .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 6)
+                                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                         } else {
                             Image(systemName: "pencil.and.outline")
                                 .font(.system(size: 64))
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(.secondary)
                         }
                         
                         VStack(spacing: 8) {
                             Text("Welcome to Glyph")
-                                .font(.system(size: 28, weight: .bold, design: .rounded))
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
                                 .foregroundStyle(.primary)
                             
                             Text("A minimalist writing environment powered by local intelligence.")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
                         }
@@ -174,32 +174,24 @@ struct EditorScreen: View {
                             }
                         }) {
                             Text("Start Writing")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.white)
-                                .padding(.vertical, 10)
+                                .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color.blue, Color.purple],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    in: RoundedRectangle(cornerRadius: 12)
-                                )
+                                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 10))
                         }
                         .buttonStyle(.plain)
-                        .shadow(color: Color.blue.opacity(0.3), radius: 8, y: 3)
                     }
                     .padding(32)
-                    .frame(width: 450)
+                    .frame(width: 440)
                     .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 24))
+                    .clipShape(RoundedRectangle(cornerRadius: 20))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 24)
-                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 20)
+                            .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
                     )
-                    .shadow(color: .black.opacity(0.35), radius: 30, x: 0, y: 15)
-                    .transition(.scale(scale: 0.92).combined(with: .opacity))
+                    .shadow(color: .black.opacity(0.25), radius: 25, x: 0, y: 12)
+                    .transition(.scale(scale: 0.94).combined(with: .opacity))
                 }
                 .zIndex(100)
             }
@@ -222,23 +214,20 @@ struct FeatureRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(.blue)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.primary)
                 .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.blue.opacity(0.12))
-                )
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(.primary)
                 
                 Text(description)
-                    .font(.system(size: 12, weight: .regular, design: .rounded))
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
                     .foregroundStyle(.secondary)
-                    .lineSpacing(3)
+                    .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
