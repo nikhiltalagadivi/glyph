@@ -6,8 +6,8 @@ class GhostPillState: ObservableObject {
     @Published var isThinking: Bool = false
 }
 
-/// Wraps SwiftMath's MTMathUILabel in SwiftUI for live LaTeX preview in the ghost pill
-struct MathView: NSViewRepresentable {
+/// Renders LaTeX directly to an NSImage using SwiftMath for stable SwiftUI layout sizing
+struct MathView: View {
     let latex: String
     let fontSize: CGFloat
     
@@ -16,30 +16,62 @@ struct MathView: NSViewRepresentable {
         self.fontSize = fontSize
     }
     
-    func makeNSView(context: Context) -> MTMathUILabel {
-        let label = MTMathUILabel()
-        label.fontSize = fontSize
-        label.textAlignment = .left
-        label.labelMode = .text
-        return label
+    var body: some View {
+        if let image = renderMathImage() {
+            Image(nsImage: image)
+                .renderingMode(.template)
+                .foregroundColor(.primary)
+        } else {
+            Text(latex)
+                .font(.system(size: fontSize, design: .monospaced))
+        }
     }
     
-    func updateNSView(_ label: MTMathUILabel, context: Context) {
-        // Strip delimiters for SwiftMath
-        var raw = latex.trimmingCharacters(in: .whitespacesAndNewlines)
-        if raw.hasPrefix("\\(") && raw.hasSuffix("\\)") {
-            raw = String(raw.dropFirst(2).dropLast(2))
-        } else if raw.hasPrefix("\\[") && raw.hasSuffix("\\]") {
-            raw = String(raw.dropFirst(2).dropLast(2))
-        } else if raw.hasPrefix("$$") && raw.hasSuffix("$$") && raw.count > 4 {
-            raw = String(raw.dropFirst(2).dropLast(2))
-        } else if raw.hasPrefix("$") && raw.hasSuffix("$") && raw.count > 2 {
-            raw = String(raw.dropFirst().dropLast())
+    private func renderMathImage() -> NSImage? {
+        let rawLatex = stripLatexDelimiters(latex)
+        guard !rawLatex.isEmpty else { return nil }
+        
+        let mathImage = MTMathImage(
+            latex: rawLatex,
+            fontSize: fontSize,
+            textColor: .textColor, // Uses dynamic AppKit textColor for light/dark support
+            labelMode: .text,      // Inline style
+            textAlignment: .left
+        )
+        
+        let (_, image) = mathImage.asImage()
+        image?.isTemplate = true
+        return image
+    }
+    
+}
+
+/// Three dots that breathe while the language model is working.
+///
+/// Only the model path ever shows this: deterministic translations appear on the same
+/// runloop turn as the keystroke, with no intermediate state to report.
+private struct ThinkingDots: View {
+    @State private var phase = 0.0
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .frame(width: 4, height: 4)
+                    .foregroundStyle(.secondary)
+                    .opacity(opacity(for: index))
+            }
         }
-        label.latex = raw.trimmingCharacters(in: .whitespaces)
-        label.fontSize = fontSize
-        label.textColor = .labelColor
-        label.invalidateIntrinsicContentSize()
+        .onAppear {
+            withAnimation(.linear(duration: 1.2).repeatForever(autoreverses: false)) {
+                phase = 3
+            }
+        }
+    }
+
+    private func opacity(for index: Int) -> Double {
+        let distance = abs(phase - Double(index))
+        return 0.35 + 0.65 * max(0, 1 - distance)
     }
 }
 
@@ -48,31 +80,30 @@ struct GhostPillView: View {
 
     var body: some View {
         Group {
-            if !state.suggestionText.isEmpty {
-                HStack(spacing: 6) {
-                    Text("⟲")
-                        .foregroundColor(.secondary)
-                    MathView(state.suggestionText, fontSize: 16)
-                        .frame(height: 22)
-                        .fixedSize()
-                    
-                    HStack(spacing: 2) {
-                        Image(systemName: "arrow.right.to.line")
-                            .font(.system(size: 9, weight: .bold))
-                        Text("Tab")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .background(Color.primary.opacity(0.1))
-                    .cornerRadius(4)
+            if state.suggestionText.isEmpty {
+                if state.isThinking {
+                    ThinkingDots()
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(pill)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(.regularMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 1))
+            } else {
+                HStack(spacing: 9) {
+                    MathView(state.suggestionText, fontSize: 15)
+
+                    Text("\u{21E5}")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background(pill)
             }
         }
-}
+    }
+
+    /// A single quiet surface — no stroke, no shadow, no tint.
+    private var pill: some View {
+        Capsule().fill(.regularMaterial)
+    }
 }

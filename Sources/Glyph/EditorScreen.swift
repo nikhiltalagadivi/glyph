@@ -5,234 +5,324 @@
 
 import AppKit
 import SwiftUI
-import SwiftMath
-import UniformTypeIdentifiers
 
-// Custom key to store LaTeX source on text attachments for Markdown export
+// MARK: - Main Editor Screen
 
 struct EditorScreen: View {
-    @AppStorage("hasShownWelcome") private var hasShownWelcome = false
-    @State private var showWelcome = false
     @State private var viewModel = EditorViewModel()
-    @State private var isMenuExpanded = false
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @FocusState private var isSearchFocused: Bool
 
     var body: some View {
-        ZStack(alignment: .center) {
-            // Full-bleed rich text editor
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(viewModel: viewModel, isSearchFocused: $isSearchFocused)
+                .navigationSplitViewColumnWidth(
+                    min: EditorTheme.Sidebar.width.min,
+                    ideal: EditorTheme.Sidebar.width.ideal,
+                    max: EditorTheme.Sidebar.width.max
+                )
+        } detail: {
+            EditorPane(viewModel: viewModel)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .background(shortcuts)
+        .task { await viewModel.startupAI() }
+    }
+
+    /// Keyboard shortcuts with no visible control of their own.
+    private var shortcuts: some View {
+        Group {
+            Button("") { isSearchFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+            Button("") {
+                if let selected = viewModel.selectedNote { viewModel.deleteNote(selected) }
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+            .disabled(viewModel.selectedNote == nil)
+        }
+        .opacity(0)
+    }
+}
+
+// MARK: - Editor Pane
+
+private struct EditorPane: View {
+    @Bindable var viewModel: EditorViewModel
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
             RichTextEditor(viewModel: viewModel)
                 .ignoresSafeArea()
 
-            // Floating UI overlays
-            VStack(spacing: 0) {
-                HStack {
-                    Spacer()
-                    HStack(spacing: 4) {
-                        if isMenuExpanded {
-                            Button(action: { viewModel.toggleBold() }) {
-                                Image(systemName: "bold")
-                                    .font(.system(size: 14, weight: viewModel.isBold ? .bold : .medium))
-                                    .foregroundStyle(viewModel.isBold ? .primary : .secondary)
-                                    .frame(width: 30, height: 30)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            
-                            Button(action: { viewModel.toggleItalic() }) {
-                                Image(systemName: "italic")
-                                    .font(.system(size: 14, weight: viewModel.isItalic ? .bold : .medium))
-                                    .foregroundStyle(viewModel.isItalic ? .primary : .secondary)
-                                    .frame(width: 30, height: 30)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            
-                            Button(action: { viewModel.toggleUnderline() }) {
-                                Image(systemName: "underline")
-                                    .font(.system(size: 14, weight: viewModel.isUnderlined ? .bold : .medium))
-                                    .foregroundStyle(viewModel.isUnderlined ? .primary : .secondary)
-                                    .frame(width: 30, height: 30)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            
-                            Button(action: { viewModel.toggleStrikethrough() }) {
-                                Image(systemName: "strikethrough")
-                                    .font(.system(size: 14, weight: viewModel.isStrikethrough ? .bold : .medium))
-                                    .foregroundStyle(viewModel.isStrikethrough ? .primary : .secondary)
-                                    .frame(width: 30, height: 30)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            
-                            Divider()
-                                .frame(height: 18)
-                                .padding(.horizontal, 4)
-                            
-                            Button(action: { viewModel.exportAsMarkdown() }) {
-                                Image(systemName: "arrow.up.doc")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 30, height: 30)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            
-                            Divider()
-                                .frame(height: 18)
-                                .padding(.horizontal, 4)
-                        }
-                        
-                        Button(action: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                isMenuExpanded.toggle()
-                            }
-                        }) {
-                            Image(systemName: isMenuExpanded ? "xmark" : "ellipsis")
-                                .font(.system(size: 16, weight: .bold))
-                                .frame(width: 30, height: 30)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(isMenuExpanded ? .horizontal : .all, isMenuExpanded ? 14 : 0)
-                    .padding(isMenuExpanded ? .vertical : .all, isMenuExpanded ? 6 : 0)
-                    .frame(height: 36)
-                    .frame(width: isMenuExpanded ? nil : 36)
-                    .background(.regularMaterial, in: Capsule())
-                    .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
-                    .shadow(color: Color.black.opacity(0.15), radius: 8, y: 3)
-                }
-                .padding(.top, 16)
-
-                Spacer()
-
-                // Glass status pill
-                if !viewModel.statusMessage.isEmpty && viewModel.statusMessage != "thinking…" && viewModel.statusMessage != "⇥ Tab" {
-                    StatusPill(
-                        message: viewModel.statusMessage,
-                        isHighlighted: viewModel.currentSuggestion != nil
-                    )
-                    .padding(.bottom, 20)
-                    .transition(.opacity.combined(with: .scale(scale: 0.92)))
-                }
-            }
-            .padding(.horizontal, 16)
-            .ignoresSafeArea(.container, edges: .top)
-            .animation(.smooth(duration: 0.25), value: viewModel.statusMessage.isEmpty || viewModel.statusMessage == "thinking…" || viewModel.statusMessage == "⇥ Tab")
-            
-            if showWelcome {
-                ZStack {
-                    Color.black
-                        .opacity(0.4)
-                        .contentShape(Rectangle())
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                    
-                    VStack(spacing: 24) {
-                        if let appIcon = NSImage(named: "NSApplicationIcon") {
-                            Image(nsImage: appIcon)
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 80, height: 80)
-                                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
-                        } else {
-                            Image(systemName: "pencil.and.outline")
-                                .font(.system(size: 64))
-                                .foregroundStyle(.secondary)
-                        }
-                        
-                        VStack(spacing: 8) {
-                            Text("Welcome to Glyph")
-                                .font(.system(size: 24, weight: .bold, design: .rounded))
-                                .foregroundStyle(.primary)
-                            
-                            Text("A minimalist writing environment powered by local intelligence.")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 18) {
-                            FeatureRow(
-                                icon: "keyboard",
-                                title: "Freewrite & Complete",
-                                description: "Write naturally. The local AI engine silently predicts the continuation of your thoughts. Press Tab ⇥ to accept suggestions instantly."
-                            )
-                            
-                            FeatureRow(
-                                icon: "terminal",
-                                title: "Intentional AI Prompts",
-                                description: "Start any sentence or line with a slash (/) to command the AI. Use it to formulate LaTeX equations, render mathematics, or translate descriptions."
-                            )
-                        }
-                        .padding(.horizontal, 8)
-                        
-                        Button(action: {
-                            withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
-                                showWelcome = false
-                                hasShownWelcome = true
-                            }
-                        }) {
-                            Text("Start Writing")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.white)
-                                .padding(.vertical, 8)
-                                .frame(maxWidth: .infinity)
-                                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 10))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(32)
-                    .frame(width: 440)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
-                    )
-                    .shadow(color: .black.opacity(0.25), radius: 25, x: 0, y: 12)
-                    .transition(.scale(scale: 0.94).combined(with: .opacity))
-                }
-                .zIndex(100)
+            if viewModel.showsStatus {
+                StatusPill(message: viewModel.statusMessage)
+                    .padding(.bottom, 24)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
             }
         }
-        .task {
-            if !hasShownWelcome {
-                showWelcome = true
+        .animation(.easeOut(duration: 0.18), value: viewModel.showsStatus)
+        .navigationTitle("")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                DocumentMenu(viewModel: viewModel)
             }
-            await viewModel.startupAI()
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: viewModel.createNewNote) {
+                    Image(systemName: "square.and.pencil")
+                }
+                .help("New note (⌘N)")
+                .keyboardShortcut("n", modifiers: .command)
+            }
         }
     }
 }
 
-// MARK: - Welcome View Row Component
-struct FeatureRow: View {
-    let icon: String
-    let title: String
-    let description: String
-    
+/// Everything that is not writing, folded behind one control.
+private struct DocumentMenu: View {
+    @Bindable var viewModel: EditorViewModel
+    @State private var isNaming = false
+    @State private var draftName = ""
+
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: icon)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.primary)
-                .frame(width: 28, height: 28)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
-                
-                Text(description)
-                    .font(.system(size: 11, weight: .regular, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
+        Menu {
+            Section("Course") {
+                ForEach(viewModel.courses, id: \.self) { course in
+                    Button {
+                        viewModel.assignSelectedNote(to: course)
+                    } label: {
+                        if course == viewModel.selectedNote?.course {
+                            Label(course, systemImage: "checkmark")
+                        } else {
+                            Text(course)
+                        }
+                    }
+                }
+                Button("New Course…") { draftName = ""; isNaming = true }
+                if viewModel.selectedNote?.course != nil {
+                    Button("Remove from Course") { viewModel.assignSelectedNote(to: nil) }
+                }
+            }
+            Section("Format") {
+                Button("Bold", action: viewModel.toggleBold).keyboardShortcut("b")
+                Button("Italic", action: viewModel.toggleItalic).keyboardShortcut("i")
+                Button("Underline", action: viewModel.toggleUnderline).keyboardShortcut("u")
+                Button("Strikethrough", action: viewModel.toggleStrikethrough)
+            }
+            Section("Export") {
+                Button("Markdown…", action: viewModel.exportAsMarkdown)
+                Button("LaTeX…", action: viewModel.exportAsLaTeX)
+                Button("PDF…", action: viewModel.exportAsPDF)
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .menuIndicator(.hidden)
+        .help("Course, formatting and export")
+        .alert("New Course", isPresented: $isNaming) {
+            TextField("MATH 51", text: $draftName)
+            Button("Cancel", role: .cancel) { }
+            Button("Create") { viewModel.assignSelectedNote(to: draftName) }
+        } message: {
+            Text("Notes are grouped by course in the sidebar.")
+        }
+    }
+}
+
+// MARK: - Sidebar
+
+private struct SidebarView: View {
+    @Bindable var viewModel: EditorViewModel
+    @FocusState.Binding var isSearchFocused: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SearchField(text: $viewModel.searchQuery, isFocused: $isSearchFocused)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18, pinnedViews: []) {
+                    ForEach(viewModel.groupedNotes) { section in
+                        VStack(alignment: .leading, spacing: 1) {
+                            SectionHeader(title: section.id)
+                            ForEach(section.notes) { note in
+                                NoteRow(
+                                    note: note,
+                                    isSelected: viewModel.selectedNote?.id == note.id,
+                                    courses: viewModel.courses,
+                                    onSelect: { viewModel.select(note) },
+                                    onMove: { viewModel.setCourse($0, for: note) },
+                                    onDelete: { viewModel.deleteNote(note) },
+                                    onRestore: { viewModel.restoreNote(note) },
+                                    onPurge: { viewModel.permanentlyDelete(note) }
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 16)
+            }
+            .scrollContentBackground(.hidden)
+
+            if !viewModel.searchQuery.isEmpty {
+                ResultCount(count: viewModel.filteredNotes.count)
             }
         }
     }
 }
 
-// MARK: - Formatting Toolbar
+private struct SearchField: View {
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
 
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.tertiary)
+
+            TextField("Search notes and equations", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($isFocused)
+                .onSubmit { isFocused = false }
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+    }
+}
+
+private struct SectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .textCase(.uppercase)
+            .kerning(0.6)
+            .padding(.horizontal, EditorTheme.Sidebar.rowPaddingH)
+            .padding(.bottom, 5)
+    }
+}
+
+private struct ResultCount: View {
+    let count: Int
+
+    var body: some View {
+        Text(count == 1 ? "1 note" : "\(count) notes")
+            .font(.system(size: 10))
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 8)
+    }
+}
+
+private struct NoteRow: View {
+    let note: GlyphNote
+    let isSelected: Bool
+    let courses: [String]
+    let onSelect: () -> Void
+    let onMove: (String?) -> Void
+    let onDelete: () -> Void
+    let onRestore: () -> Void
+    let onPurge: () -> Void
+
+    @State private var isHovered = false
+
+    private var timestamp: String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+        if calendar.isDateInToday(note.lastModified) {
+            formatter.dateFormat = "HH:mm"
+        } else if calendar.isDateInYesterday(note.lastModified) {
+            return "Yesterday"
+        } else if let week = calendar.date(byAdding: .day, value: -7, to: Date()),
+                  note.lastModified > week {
+            formatter.dateFormat = "EEE"
+        } else {
+            formatter.dateFormat = "d MMM"
+        }
+        return formatter.string(from: note.lastModified)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(note.title.isEmpty ? "New Note" : note.title)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(note.isDeleted ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                .lineLimit(1)
+
+            Text("\(timestamp)   \(note.contentPreview)")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, EditorTheme.Sidebar.rowPaddingH)
+        .padding(.vertical, EditorTheme.Sidebar.rowPaddingV)
+        .background(
+            RoundedRectangle(cornerRadius: EditorTheme.Sidebar.rowCornerRadius)
+                .fill(background)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { isHovered = $0 }
+        .contextMenu {
+            if note.isDeleted {
+                Button("Put Back", action: onRestore)
+                Divider()
+                Button("Delete Permanently", role: .destructive, action: onPurge)
+            } else {
+                if !courses.isEmpty {
+                    Menu("Move to") {
+                        ForEach(courses, id: \.self) { course in
+                            Button(course) { onMove(course) }
+                        }
+                    }
+                }
+                if note.course != nil {
+                    Button("Remove from Course") { onMove(nil) }
+                }
+                Divider()
+                Button("Delete", role: .destructive, action: onDelete)
+            }
+        }
+    }
+
+    /// Selection is a quiet fill rather than a card: no border, no shadow, no material.
+    private var background: Color {
+        if isSelected { return Color.primary.opacity(0.09) }
+        if isHovered { return Color.primary.opacity(0.04) }
+        return .clear
+    }
+}
+
+// MARK: - Status
+
+/// The only transient message the editor shows, and only when something is wrong.
+private struct StatusPill: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: Capsule())
+    }
+}

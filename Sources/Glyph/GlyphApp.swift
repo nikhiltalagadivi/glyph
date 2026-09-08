@@ -21,7 +21,7 @@ struct GlyphApp: App {
     var body: some Scene {
         WindowGroup {
             EditorScreen()
-                .frame(minWidth: 720, minHeight: 520)
+                .frame(minWidth: 760, minHeight: 560)
         }
         .windowStyle(.automatic)
     }
