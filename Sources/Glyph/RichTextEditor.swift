@@ -41,10 +41,13 @@ struct RichTextEditor: NSViewRepresentable {
             textView.inlinePredictionType = .no
         }
         textView.allowsUndo = true
-        textView.font = .systemFont(ofSize: 18)
+        textView.font = EditorTheme.body
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
-        textView.textContainerInset = NSSize(width: 72, height: 72)
+        textView.textContainerInset = NSSize(
+            width: EditorTheme.minimumSideInset,
+            height: EditorTheme.topInset
+        )
         textView.minSize = NSSize(width: 0, height: scrollView.contentSize.height)
         textView.maxSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
@@ -59,11 +62,7 @@ struct RichTextEditor: NSViewRepresentable {
             height: CGFloat.greatestFiniteMagnitude
         )
 
-        // Default typing attributes
-        textView.typingAttributes = [
-            .font: NSFont.systemFont(ofSize: 18),
-            .foregroundColor: NSColor.labelColor
-        ]
+        textView.typingAttributes = EditorTheme.bodyAttributes
 
         scrollView.documentView = textView
 
@@ -78,7 +77,15 @@ struct RichTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        // No SwiftUI-driven updates needed; text view manages its own state
+        guard let textView = scrollView.documentView as? GlyphTextView else { return }
+        // Equation bitmaps bake in their text colour, so a light/dark switch has to
+        // rebuild them. `colorScheme` drives this update.
+        let isDark = context.environment.colorScheme == .dark
+        if context.coordinator.lastRenderedDarkMode != isDark {
+            context.coordinator.lastRenderedDarkMode = isDark
+            invalidateMathImageCache()
+            textView.refreshEquationImages()
+        }
     }
 
     // MARK: Coordinator (NSTextViewDelegate)
@@ -86,13 +93,36 @@ struct RichTextEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         let viewModel: EditorViewModel
+        /// Tracks the appearance the current equation bitmaps were rendered for.
+        var lastRenderedDarkMode: Bool?
+
+        /// A SwiftUI-hosted window supplies no undo manager, so the text view has to
+        /// own one. Without this, Command-Z did nothing anywhere in the editor.
+        let textUndoManager = UndoManager()
+
+        func undoManager(for view: NSTextView) -> UndoManager? { textUndoManager }
 
         init(viewModel: EditorViewModel) {
             self.viewModel = viewModel
         }
 
         func textDidChange(_ notification: Notification) {
-            viewModel.requestSuggestion()
+            // An undo is a rejection. Re-rendering the equation, or immediately
+            // offering the same suggestion again, would fight the user.
+            let isReverting = textUndoManager.isUndoing || textUndoManager.isRedoing
+            if isReverting {
+                (notification.object as? GlyphTextView)?.clearSuggestion()
+            } else {
+                viewModel.scanAndRenderRawLatex()
+                viewModel.requestSuggestion()
+            }
+            if let textView = notification.object as? GlyphTextView {
+                // The first line is the title, and an equation's style depends on
+                // whether it still has its line to itself.
+                textView.enforceTitleStyle()
+                textView.restyleEquationsAroundCaret()
+            }
+            viewModel.noteContentDidChange()
         }
 
         private var activeEditPopover: NSPopover?
@@ -102,9 +132,6 @@ struct RichTextEditor: NSViewRepresentable {
             guard let tv = notification.object as? NSTextView,
                   let ts = tv.textStorage else { return }
             
-            if let font = tv.typingAttributes[.font] as? NSFont, font.pointSize < 18 {
-                tv.typingAttributes[.font] = NSFont.systemFont(ofSize: 18)
-            }
             viewModel.updateFormattingState()
 
             // Check if selection contains exactly one character containing a LaTeX attachment
@@ -154,32 +181,24 @@ struct RichTextEditor: NSViewRepresentable {
             let editView = LatexEditPopoverView(
                 initialLatex: latexSource,
                 onSave: { [weak tv, weak self] newLatex in
-                    guard let tv = tv, let ts = tv.textStorage else { return }
-                    if let newImage = createMathImage(for: newLatex) {
+                    guard let tv, let ts = tv.textStorage,
+                          charIndex < ts.length,
+                          let image = createMathImage(for: newLatex) else {
+                        popover.performClose(nil)
+                        self?.activeEditPopover = nil
+                        return
+                    }
+                    let replacement = mathAttachmentString(
+                        image: image,
+                        source: newLatex,
+                        font: tv.font ?? .systemFont(ofSize: 18),
+                        includeTrailingSpace: false
+                    )
+                    let range = NSRange(location: charIndex, length: 1)
+                    if tv.shouldChangeText(in: range, replacementString: replacement.string) {
                         ts.beginEditing()
-                        
-                        let newAttachment = NSTextAttachment()
-                        newAttachment.image = newImage
-                        
-                        let editorFont = tv.font ?? NSFont.systemFont(ofSize: 18)
-                        let descent = editorFont.descender
-                        let imgHeight = newImage.size.height
-                        let lineHeight = editorFont.ascender - editorFont.descender
-                        let yOffset = descent - (imgHeight - lineHeight) / 2
-                        newAttachment.bounds = CGRect(origin: CGPoint(x: 0, y: yOffset), size: newImage.size)
-                        
-                        let attrStr = NSMutableAttributedString(attachment: newAttachment)
-                        attrStr.addAttribute(.font, value: NSFont.systemFont(ofSize: 18), range: NSRange(location: 0, length: 1))
-                        attrStr.addAttribute(.latexSource, value: newLatex, range: NSRange(location: 0, length: attrStr.length))
-                        let normalAttrs = [
-                            .font: NSFont.systemFont(ofSize: 18),
-                            .foregroundColor: NSColor.labelColor
-                        ] as [NSAttributedString.Key : Any]
-                        attrStr.append(NSAttributedString(string: " ", attributes: normalAttrs))
-                        
-                        ts.replaceCharacters(in: NSRange(location: charIndex, length: 1), with: attrStr)
+                        ts.replaceCharacters(in: range, with: replacement)
                         ts.endEditing()
-                        
                         tv.didChangeText()
                     }
                     popover.performClose(nil)
@@ -198,18 +217,3 @@ struct RichTextEditor: NSViewRepresentable {
         }
     }
 }
-
-// MARK: - Vertically Centered Text Field Cell & Glass Status Label
-
-final class VerticallyCenteredTextFieldCell: NSTextFieldCell {
-    override func drawingRect(forBounds theRect: NSRect) -> NSRect {
-        let newRect = super.drawingRect(forBounds: theRect)
-        let textSize = cellSize(forBounds: theRect)
-        let yOffset = (newRect.height - textSize.height) / 2
-        if yOffset > 0 {
-            return NSRect(x: newRect.minX, y: newRect.minY + yOffset, width: newRect.width, height: newRect.height - yOffset)
-        }
-        return newRect
-    }
-}
-

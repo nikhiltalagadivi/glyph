@@ -11,26 +11,12 @@ import UniformTypeIdentifiers
 // MARK: - Design Constants
 
 private enum DesignConstants {
-    static let editorFontSize: CGFloat = 18
-    static let spinnerRadius: CGFloat = 7.0
-    static let spinnerLineWidth: CGFloat = 2.5
-    static let spinnerArcDegrees: CGFloat = 100
-    static let spinnerSpeed: Double = 1.2
     static let ghostFadeInDuration: TimeInterval = 0.2
     static let ghostFadeOutDuration: TimeInterval = 0.1
     static let highlightCornerRadius: CGFloat = 6
     static let highlightPaddingH: CGFloat = 4
     static let highlightPaddingV: CGFloat = 2
     static let highlightBorderWidth: CGFloat = 1.0
-    static let ghostThinkingWidth: CGFloat = 36
-    static let ghostThinkingHeight: CGFloat = 22
-}
-
-// MARK: - Spinner View (CADisplayLink-driven, zero-overhead when idle)
-
-final class GlassStatusLabel: NSTextField {
-
-    var isThinking = false
 }
 
 // MARK: - Glyph Text View
@@ -44,6 +30,10 @@ final class GlyphTextView: NSTextView {
 
     /// True while we are programmatically inserting text; suppresses re-entrant suggestion triggers.
     private(set) var isInsertingSuggestion = false
+
+    /// Monotonic edit counter. Comparing this is O(1); comparing document strings to
+    /// detect staleness was O(document) on every model response.
+    private(set) var changeCount: Int = 0
 
     // MARK: Ghost label
 
@@ -97,15 +87,48 @@ final class GlyphTextView: NSTextView {
         }
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == .command {
+            if event.charactersIgnoringModifiers == "z" {
+                if let undoManager = self.undoManager, undoManager.canUndo {
+                    undoManager.undo()
+                    return true
+                }
+            }
+        } else if flags == [.command, .shift] {
+            if event.charactersIgnoringModifiers == "z" {
+                if let undoManager = self.undoManager, undoManager.canRedo {
+                    undoManager.redo()
+                    return true
+                }
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func didChangeText() {
+        changeCount &+= 1
         super.didChangeText()
         guard !isInsertingSuggestion else { return }
         needsDisplay = true
     }
 
     override func layout() {
+        applyReadableMeasure()
         super.layout()
         if activeSuggestion != nil { positionGhostLabel() }
+    }
+
+    /// Keeps the text column at a comfortable width and centres it, rather than letting
+    /// lines run the full width of a wide window where the eye loses the return sweep.
+    private func applyReadableMeasure() {
+        let available = max(0, bounds.width)
+        let column = min(EditorTheme.maximumMeasure, available - EditorTheme.minimumSideInset * 2)
+        let side = max(EditorTheme.minimumSideInset, (available - column) / 2)
+        if abs(textContainerInset.width - side) > 0.5 {
+            textContainerInset = NSSize(width: side, height: EditorTheme.topInset)
+        }
     }
 
     // MARK: - Ghost Text Public API
@@ -208,6 +231,315 @@ final class GlyphTextView: NSTextView {
         }
     }
 
+    /// Rebuilds every equation attachment from its stored LaTeX, picking up the
+    /// current text colour. Does not mark the document dirty: nothing textual changed.
+    func refreshEquationImages() {
+        guard let ts = textStorage, ts.length > 0 else { return }
+        restyleEquations(in: NSRange(location: 0, length: ts.length))
+    }
+
+    /// Re-renders the equations overlapping `range` in whichever style now suits them.
+    ///
+    /// Typing next to a standalone equation turns it from display into inline style, so
+    /// this runs after edits. It only ever changes attributes, never the string, so it
+    /// cannot re-enter the change notification that triggered it.
+    func restyleEquations(in range: NSRange) {
+        guard let ts = textStorage, ts.length > 0 else { return }
+        let clamped = NSIntersectionRange(range, NSRange(location: 0, length: ts.length))
+        guard clamped.length > 0 else { return }
+
+        let editorFont = font ?? EditorTheme.body
+        var updates: [(NSRange, NSTextAttachment)] = []
+
+        ts.enumerateAttribute(.latexSource, in: clamped, options: []) { value, subrange, _ in
+            guard let source = value as? String else { return }
+            let style = mathStyle(for: subrange, in: ts)
+            guard let image = createMathImage(for: source, style: style) else { return }
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            attachment.bounds = mathAttachmentBounds(imageSize: image.size, font: editorFont)
+            updates.append((subrange, attachment))
+        }
+        guard !updates.isEmpty else { return }
+
+        ts.beginEditing()
+        for (subrange, attachment) in updates {
+            ts.addAttribute(.attachment, value: attachment, range: subrange)
+        }
+        ts.endEditing()
+        needsDisplay = true
+    }
+
+    /// Restyles just the paragraph the caret sits in — cheap enough to run on every edit.
+    func restyleEquationsAroundCaret() {
+        guard let ts = textStorage, ts.length > 0 else { return }
+        let text = ts.string as NSString
+        let caret = min(selectedRange().location, text.length)
+        let paragraph = text.paragraphRange(for: NSRange(location: max(0, caret - 1), length: 0))
+        restyleEquations(in: paragraph)
+    }
+
+    /// Brings a document onto the current type scale.
+    ///
+    /// Notes written before the redesign carry the old system sans; this converts them
+    /// to the editor face while keeping any bold or italic the writer applied.
+    func normalizeTypography() {
+        guard let ts = textStorage, ts.length > 0 else { return }
+        let full = NSRange(location: 0, length: ts.length)
+        let targetFamily = EditorTheme.body.familyName
+
+        ts.beginEditing()
+        ts.addAttribute(.paragraphStyle, value: EditorTheme.bodyParagraphStyle, range: full)
+        ts.enumerateAttributes(in: full, options: []) { attrs, range, _ in
+            guard attrs[.attachment] == nil else { return }
+            guard let existing = attrs[.font] as? NSFont else {
+                ts.addAttribute(.font, value: EditorTheme.body, range: range)
+                return
+            }
+            guard existing.familyName != targetFamily else { return }
+            let descriptor = EditorTheme.body.fontDescriptor
+                .withSymbolicTraits(existing.fontDescriptor.symbolicTraits)
+            let converted = NSFont(descriptor: descriptor, size: existing.pointSize) ?? EditorTheme.body
+            ts.addAttribute(.font, value: converted, range: range)
+        }
+        ts.endEditing()
+    }
+
+    // MARK: - Title styling
+
+    /// The first line of a note is its title, so it is set as one.
+    ///
+    /// Only the size changes: bold or italic the writer applied is carried across, and
+    /// a line that stops being the first line is demoted back to body size.
+    func enforceTitleStyle() {
+        guard let ts = textStorage, ts.length > 0 else { return }
+        let text = ts.string as NSString
+        let first = text.paragraphRange(for: NSRange(location: 0, length: 0))
+
+        ts.beginEditing()
+        resize(ts, in: first, to: EditorTheme.titleSize, paragraphStyle: EditorTheme.titleParagraphStyle)
+
+        // A newline typed at the end of the title carries the title font forward.
+        if NSMaxRange(first) < text.length {
+            let second = text.paragraphRange(for: NSRange(location: NSMaxRange(first), length: 0))
+            resize(ts, in: second, to: EditorTheme.bodySize, paragraphStyle: EditorTheme.bodyParagraphStyle)
+        }
+        ts.endEditing()
+    }
+
+    private func resize(
+        _ ts: NSTextStorage,
+        in range: NSRange,
+        to size: CGFloat,
+        paragraphStyle: NSParagraphStyle
+    ) {
+        guard range.length > 0 else { return }
+        // Skip the write when nothing would change: this runs on every keystroke and
+        // each attribute change invalidates layout for the paragraph.
+        let existingStyle = ts.attribute(.paragraphStyle, at: range.location, effectiveRange: nil)
+        if (existingStyle as? NSParagraphStyle) != paragraphStyle {
+            ts.addAttribute(.paragraphStyle, value: paragraphStyle, range: range)
+        }
+        ts.enumerateAttributes(in: range, options: []) { attrs, subrange, _ in
+            // Equation attachments are positioned against their own font; leave them be.
+            guard attrs[.attachment] == nil else { return }
+            guard let font = attrs[.font] as? NSFont, font.pointSize != size else { return }
+            let resized = NSFontManager.shared.convert(font, toSize: size)
+            ts.addAttribute(.font, value: resized, range: subrange)
+        }
+    }
+
+    // MARK: - Copying
+
+    /// Copying anything that contains an equation puts real LaTeX on the pasteboard.
+    ///
+    /// This is the bridge out of the app: notes go into a problem set, an Overleaf
+    /// document or a message to a TA without anyone retyping the maths. Every other
+    /// editor hands over an image or an object-replacement character here.
+    override func copy(_ sender: Any?) {
+        guard writeLatexSelectionToPasteboard() else {
+            super.copy(sender)
+            return
+        }
+    }
+
+    override func cut(_ sender: Any?) {
+        if writeLatexSelectionToPasteboard() {
+            insertText("", replacementRange: selectedRange())
+        } else {
+            super.cut(sender)
+        }
+    }
+
+    /// Writes the selection to the general pasteboard, with equations as LaTeX in the
+    /// plain-text flavour and as their rendered image in the rich flavour.
+    ///
+    /// NSTextView normally fills the pasteboard lazily, which would overwrite anything
+    /// written alongside it, so the whole pasteboard is declared here with no owner.
+    private func writeLatexSelectionToPasteboard() -> Bool {
+        guard let ts = textStorage else { return false }
+        let ranges = selectedRanges.map(\.rangeValue).filter { $0.length > 0 }
+        guard !ranges.isEmpty else { return false }
+
+        let plain = ranges
+            .map { latexPlainText(in: $0, storage: ts) }
+            .joined(separator: "\n")
+        guard !plain.isEmpty else { return false }
+
+        let rich = NSMutableAttributedString()
+        for range in ranges {
+            if rich.length > 0 { rich.append(NSAttributedString(string: "\n")) }
+            rich.append(ts.attributedSubstring(from: range))
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.declareTypes([.rtfd, .rtf, .string], owner: nil)
+
+        let full = NSRange(location: 0, length: rich.length)
+        if let rtfd = rich.rtfd(from: full, documentAttributes: [:]) {
+            pasteboard.setData(rtfd, forType: .rtfd)
+        }
+        if let rtf = rich.rtf(from: full, documentAttributes: [:]) {
+            pasteboard.setData(rtf, forType: .rtf)
+        }
+        pasteboard.setString(plain, forType: .string)
+        return true
+    }
+
+    private func latexPlainText(in range: NSRange, storage ts: NSTextStorage) -> String {
+        let clamped = NSIntersectionRange(range, NSRange(location: 0, length: ts.length))
+        guard clamped.length > 0 else { return "" }
+
+        let text = ts.string as NSString
+        var result = ""
+        result.reserveCapacity(clamped.length)
+        ts.enumerateAttributes(in: clamped, options: []) { attrs, subrange, _ in
+            if attrs[.attachment] != nil, let latex = attrs[.latexSource] as? String {
+                result += latex
+            } else {
+                result += text.substring(with: subrange)
+            }
+        }
+        return result
+    }
+
+    /// The whole document as plain text with equations expanded — used for export and
+    /// for building the search index.
+    func latexPlainText() -> String {
+        guard let ts = textStorage else { return "" }
+        return latexPlainText(in: NSRange(location: 0, length: ts.length), storage: ts)
+    }
+
+    // MARK: - Scanning windows
+
+    /// The slice of text the scanner should look at, and where it starts.
+    struct ScanWindow {
+        let text: String
+        /// UTF-16 offset of `text` within the document.
+        let offset: Int
+        /// Whether `text` starts at a real line boundary. False when a very long line
+        /// was clipped, in which case position-in-line cannot be trusted.
+        let startsLine: Bool
+    }
+
+    /// The tail of the document before the caret, bounded so per-keystroke scanning
+    /// costs the same in a 200-word note and a 200-page one.
+    ///
+    /// The window always begins on a line or word boundary, so a clipped fragment can
+    /// never be mistaken for a token.
+    func scanWindow(upTo cursor: Int) -> ScanWindow {
+        guard let ts = textStorage else { return ScanWindow(text: "", offset: 0, startsLine: true) }
+        let text = ts.string as NSString
+        let end = min(max(0, cursor), text.length)
+        guard end > 0 else { return ScanWindow(text: "", offset: 0, startsLine: true) }
+
+        let windowStart = max(0, end - Self.scanWindowLength)
+        var offset = windowStart
+        var startsLine = windowStart == 0
+
+        if windowStart > 0 {
+            let searchRange = NSRange(location: windowStart, length: end - windowStart)
+            let newline = text.rangeOfCharacter(from: .newlines, options: [], range: searchRange)
+            if newline.location != NSNotFound {
+                offset = NSMaxRange(newline)
+                startsLine = true
+            } else {
+                let space = text.rangeOfCharacter(from: .whitespaces, options: [], range: searchRange)
+                if space.location != NSNotFound { offset = NSMaxRange(space) }
+            }
+        }
+
+        guard offset < end else { return ScanWindow(text: "", offset: offset, startsLine: startsLine) }
+        return ScanWindow(
+            text: text.substring(with: NSRange(location: offset, length: end - offset)),
+            offset: offset,
+            startsLine: startsLine
+        )
+    }
+
+    /// A `/command` running from a slash at the start of a line (or after whitespace)
+    /// up to the caret.
+    struct SlashCommand {
+        /// Document range covering the slash and everything after it.
+        let range: NSRange
+        /// The command text, without the slash.
+        let instruction: String
+    }
+
+    func slashCommand(in window: ScanWindow) -> SlashCommand? {
+        let text = window.text as NSString
+        // Only the last line can hold the active command.
+        let newline = text.rangeOfCharacter(from: .newlines, options: .backwards)
+        let lineStart = newline.location == NSNotFound ? 0 : NSMaxRange(newline)
+
+        // If the window itself was clipped mid-line we cannot tell where the line began.
+        guard newline.location != NSNotFound || window.startsLine else { return nil }
+
+        // Only a slash that opens the line is a command: "x = 1 / 2" is division.
+        var slashIndex = lineStart
+        while slashIndex < text.length,
+              let scalar = Unicode.Scalar(text.character(at: slashIndex)),
+              CharacterSet.whitespaces.contains(scalar) {
+            slashIndex += 1
+        }
+        guard slashIndex < text.length, text.character(at: slashIndex) == 47 else { return nil } // "/"
+
+        let length = text.length - slashIndex
+        let instruction = text
+            .substring(with: NSRange(location: slashIndex + 1, length: length - 1))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return SlashCommand(
+            range: NSRange(location: window.offset + slashIndex, length: length),
+            instruction: instruction
+        )
+    }
+
+    /// Plain-text context for the model, with rendered equations expanded back to
+    /// their LaTeX source. Bounded for the same reason as `scanWindow`.
+    func contextText(upTo cursor: Int) -> String {
+        guard let ts = textStorage else { return "" }
+        let end = min(max(0, cursor), ts.length)
+        let start = max(0, end - Self.contextWindowLength)
+        guard start < end else { return "" }
+
+        let text = ts.string as NSString
+        var result = ""
+        result.reserveCapacity(end - start)
+        ts.enumerateAttributes(in: NSRange(location: start, length: end - start), options: []) { attrs, subrange, _ in
+            if attrs[.attachment] != nil, let latex = attrs[.latexSource] as? String {
+                result += latex
+            } else {
+                result += text.substring(with: subrange)
+            }
+        }
+        return result
+    }
+
+    private static let scanWindowLength = 1_000
+    private static let contextWindowLength = 1_200
+
     // MARK: - Private: Accept Suggestion
 
     private func acceptCurrentSuggestion() {
@@ -238,30 +570,32 @@ final class GlyphTextView: NSTextView {
     private func insertSuggestionWithReplacement(text: String, replaceRange: NSRange) {
         let priorCursor = selectedRange().location
 
+        // Build the replacement first. `shouldChangeText` records the undo snapshot
+        // using the length of the string it is handed, so handing it the LaTeX source
+        // while inserting a two-character attachment run left undo unable to restore
+        // the original phrase.
+        let replacement: NSAttributedString
         if let image = createMathImage(for: text) {
-            let attrStr = mathAttachmentString(image: image, source: text)
-            textStorage?.replaceCharacters(in: replaceRange, with: attrStr)
-            let insertedLength = attrStr.length
-            setSelectedRange(NSRange(
-                location: updatedCursorPosition(
-                    prior: priorCursor,
-                    replaceRange: replaceRange,
-                    insertedLength: insertedLength
-                ),
-                length: 0
-            ))
+            replacement = mathAttachmentString(
+                image: image,
+                source: text,
+                font: font ?? EditorTheme.body
+            )
         } else {
-            let attrStr = NSAttributedString(string: text, attributes: typingAttributes)
-            textStorage?.replaceCharacters(in: replaceRange, with: attrStr)
-            setSelectedRange(NSRange(
-                location: updatedCursorPosition(
-                    prior: priorCursor,
-                    replaceRange: replaceRange,
-                    insertedLength: (text as NSString).length
-                ),
-                length: 0
-            ))
+            replacement = NSAttributedString(string: text, attributes: typingAttributes)
         }
+
+        guard shouldChangeText(in: replaceRange, replacementString: replacement.string) else { return }
+
+        textStorage?.replaceCharacters(in: replaceRange, with: replacement)
+        setSelectedRange(NSRange(
+            location: updatedCursorPosition(
+                prior: priorCursor,
+                replaceRange: replaceRange,
+                insertedLength: replacement.length
+            ),
+            length: 0
+        ))
 
         didChangeText()
     }
@@ -278,17 +612,6 @@ final class GlyphTextView: NSTextView {
 
     // MARK: - Private: Ghost Label Helpers
 
-    private func appendTabKeyBadge(to string: NSMutableAttributedString, font: NSFont) {
-        let tabImage = createTabKeyImage(font: font)
-        let attachment = NSTextAttachment()
-        attachment.image = tabImage
-        let descent = font.descender
-        let yOffset = descent + (font.ascender - descent - tabImage.size.height) / 2
-        attachment.bounds = CGRect(x: 0, y: yOffset, width: tabImage.size.width, height: tabImage.size.height)
-        string.append(NSAttributedString(string: "  "))
-        string.append(NSAttributedString(attachment: attachment))
-    }
-
     private func positionGhostLabel() {
         guard !ghostState.suggestionText.isEmpty || ghostState.isThinking,
               let lm = layoutManager,
@@ -296,7 +619,7 @@ final class GlyphTextView: NSTextView {
 
         let cursor = selectedRange().location
         let textLen = textStorage?.length ?? 0
-        let editorFont = font ?? .systemFont(ofSize: DesignConstants.editorFontSize)
+        let editorFont = font ?? .systemFont(ofSize: EditorTheme.bodySize)
         
         // Ensure layout is complete before querying metrics
         lm.ensureLayout(for: tc)
@@ -353,28 +676,6 @@ final class GlyphTextView: NSTextView {
         return (x, lineRect.minY + insetY, lineRect.height)
     }
 
-    // MARK: - Private: Math Attachment Builder
-
-    private func mathAttachmentString(image: NSImage, source: String) -> NSMutableAttributedString {
-        let attachment = NSTextAttachment()
-        attachment.image = image
-        let editorFont = font ?? NSFont.systemFont(ofSize: DesignConstants.editorFontSize)
-        let descent = editorFont.descender
-        let lineHeight = editorFont.ascender - editorFont.descender
-        let yOffset = descent - (image.size.height - lineHeight) / 2
-        attachment.bounds = CGRect(origin: CGPoint(x: 0, y: yOffset), size: image.size)
-
-        let attrStr = NSMutableAttributedString(attachment: attachment)
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: DesignConstants.editorFontSize),
-            .foregroundColor: NSColor.labelColor
-        ]
-        attrStr.addAttributes(normalAttrs, range: NSRange(location: 0, length: 1))
-        attrStr.addAttribute(.latexSource, value: source, range: NSRange(location: 0, length: attrStr.length))
-        attrStr.append(NSAttributedString(string: " ", attributes: normalAttrs))
-        return attrStr
-    }
-
     // MARK: - Private: Cursor Utilities
 
     /// Computes where the cursor should land after replacing `replaceRange` with `insertedLength` chars.
@@ -395,10 +696,7 @@ final class GlyphTextView: NSTextView {
     }
 
     private func resetTypingAttributes() {
-        typingAttributes = [
-            .font: NSFont.systemFont(ofSize: DesignConstants.editorFontSize),
-            .foregroundColor: NSColor.labelColor
-        ]
+        typingAttributes = EditorTheme.bodyAttributes
         editorViewModel?.updateFormattingState()
     }
 
@@ -411,61 +709,52 @@ final class GlyphTextView: NSTextView {
         let origin = textContainerOrigin
         let isDark = effectiveAppearance.name == .darkAqua || effectiveAppearance.name == .vibrantDark
 
-        // Draw slash command highlight
+        // The span a slash command will replace, tinted with the system accent.
         if let scRange = slashCommandHighlightRange, scRange.length > 0 {
-            let glyphRange = lm.glyphRange(forCharacterRange: scRange, actualCharacterRange: nil)
-            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, lineTC, lineGlyphRange, _ in
-                let intersection = NSIntersectionRange(glyphRange, lineGlyphRange)
-                guard intersection.length > 0 else { return }
-
-                let rect = lm.boundingRect(forGlyphRange: intersection, in: lineTC)
-                let drawRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                let paddedRect = drawRect.insetBy(dx: -4, dy: -2)
-                let path = NSBezierPath(roundedRect: paddedRect, xRadius: 4, yRadius: 4)
-
-                NSGraphicsContext.saveGraphicsState()
-                
-                // Outer glow effect
-                let glowColor = isDark ? NSColor.systemIndigo.withAlphaComponent(0.4) : NSColor.systemBlue.withAlphaComponent(0.2)
-                let shadow = NSShadow()
-                shadow.shadowColor = glowColor
-                shadow.shadowBlurRadius = 8
-                shadow.set()
-                
-                // Fill and stroke
-                let fillColor = isDark ? NSColor.systemIndigo.withAlphaComponent(0.15) : NSColor.systemBlue.withAlphaComponent(0.1)
-                fillColor.setFill()
-                path.fill()
-                
-                NSGraphicsContext.restoreGraphicsState()
-            }
+            fill(
+                range: scRange,
+                layoutManager: lm,
+                origin: origin,
+                color: EditorTheme.accent.withAlphaComponent(isDark ? 0.22 : 0.14),
+                inset: 3
+            )
         }
 
-        // Draw ghost suggestion replacement highlight
+        // The span a suggestion will replace, in plain monochrome.
         if let hlRange = temporaryHighlightRange, hlRange.length > 0 {
-            let glyphRange = lm.glyphRange(forCharacterRange: hlRange, actualCharacterRange: nil)
-            lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, lineTC, lineGlyphRange, _ in
-                let intersection = NSIntersectionRange(glyphRange, lineGlyphRange)
-                guard intersection.length > 0 else { return }
+            fill(
+                range: hlRange,
+                layoutManager: lm,
+                origin: origin,
+                color: NSColor.labelColor.withAlphaComponent(isDark ? 0.14 : 0.07),
+                inset: 3
+            )
+        }
+    }
 
-                let rect = lm.boundingRect(forGlyphRange: intersection, in: lineTC)
-                let drawRect = rect.offsetBy(dx: origin.x, dy: origin.y)
-                let paddedRect = drawRect.insetBy(
-                    dx: -DesignConstants.highlightPaddingH,
-                    dy: -DesignConstants.highlightPaddingV
-                )
-                let path = NSBezierPath(roundedRect: paddedRect,
-                                        xRadius: DesignConstants.highlightCornerRadius,
-                                        yRadius: DesignConstants.highlightCornerRadius)
+    /// Paints a rounded fill behind every line fragment a character range covers.
+    private func fill(
+        range: NSRange,
+        layoutManager lm: NSLayoutManager,
+        origin: NSPoint,
+        color: NSColor,
+        inset: CGFloat
+    ) {
+        let glyphRange = lm.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        lm.enumerateLineFragments(forGlyphRange: glyphRange) { _, _, container, lineGlyphRange, _ in
+            let intersection = NSIntersectionRange(glyphRange, lineGlyphRange)
+            guard intersection.length > 0 else { return }
 
-                NSGraphicsContext.saveGraphicsState()
-                NSColor.labelColor.withAlphaComponent(isDark ? 0.2 : 0.08).setFill()
-                path.fill()
-                NSColor.labelColor.withAlphaComponent(isDark ? 0.3 : 0.15).setStroke()
-                path.lineWidth = DesignConstants.highlightBorderWidth
-                path.stroke()
-                NSGraphicsContext.restoreGraphicsState()
-            }
+            let rect = lm.boundingRect(forGlyphRange: intersection, in: container)
+                .offsetBy(dx: origin.x, dy: origin.y)
+                .insetBy(dx: -inset, dy: -1)
+            let path = NSBezierPath(
+                roundedRect: rect,
+                xRadius: DesignConstants.highlightCornerRadius,
+                yRadius: DesignConstants.highlightCornerRadius
+            )
+            color.setFill()
+            path.fill()
         }
     }
 
